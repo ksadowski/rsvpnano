@@ -1,5 +1,5 @@
 {
-  "name": "RSVP Nano v2",
+  "name": "RSVP Nano",
   "version": "dev",
   "new_install_prompt_erase": true,
   "new_install_improv_wait_time": 0,
@@ -9,7 +9,7 @@
       "improv": false,
       "parts": [
         {
-          "path": "rsvp-nano-v2.bin",
+          "path": "rsvp-nano.bin",
           "offset": 0
         }
       ]

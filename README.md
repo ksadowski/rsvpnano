@@ -1,6 +1,6 @@
-# RSVP Nano v2
+# RSVP Nano
 
-RSVP Nano v2 is a small ESP32-S3 speed-reading device for reading books one word at a time using RSVP (rapid serial visual presentation). The firmware focuses on stable word anchoring, readable typography, adjustable pacing, SD card storage, and local book conversion.
+RSVP Nano is a small ESP32-S3 speed-reading device for reading books one word at a time using RSVP (rapid serial visual presentation). The firmware focuses on stable word anchoring, readable typography, adjustable pacing, SD card storage, and local book conversion.
 
 This repository is currently a hardware/firmware beta. It is usable, but the board wiring and display driver are still specific to the current prototype.
 
@@ -14,7 +14,7 @@ The project is open source under the MIT License.
 - SD card library under `/books`.
 - Local on-device EPUB conversion to `.rsvp` cache files.
 - Desktop SD-card converter for EPUB, text, Markdown, and HTML sources.
-- Optional USB mass-storage transfer build for copying books to the SD card.
+- USB mass-storage transfer mode for copying books to the SD card.
 - Battery status, light sleep, and power-hold handling for the current board.
 
 ## Hardware Target
@@ -42,11 +42,10 @@ To build the merged firmware binaries used by the web flasher:
 python3 tools/export_web_firmware.py
 ```
 
-That script builds both firmware environments and writes:
+That script builds the released firmware image and writes:
 
 ```text
-web/firmware/rsvp-nano-v2.bin
-web/firmware/rsvp-nano-v2-usb-msc.bin
+web/firmware/rsvp-nano.bin
 ```
 
 The `.bin` files are ignored locally; the GitHub Pages workflow generates and publishes them automatically.
@@ -64,14 +63,7 @@ pio device monitor
 The default environment is:
 
 ```text
-waveshare_esp32s3
-```
-
-For the USB mass-storage transfer build:
-
-```sh
-pio run -e waveshare_esp32s3_usb_msc
-pio run -e waveshare_esp32s3_usb_msc -t upload
+waveshare_esp32s3_usb_msc
 ```
 
 Serial monitor runs at `115200`.

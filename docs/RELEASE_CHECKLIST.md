@@ -4,10 +4,9 @@ Use this before pushing a public milestone or tagging a release.
 
 ## Firmware
 
-- Build default firmware: `pio run`
-- Build USB transfer firmware: `pio run -e waveshare_esp32s3_usb_msc`
+- Build release firmware: `pio run`
 - Export browser-flasher binaries: `python3 tools/export_web_firmware.py`
-- Flash the default firmware and confirm boot, display, touch, SD mount, and battery readout.
+- Flash the release firmware and confirm boot, display, touch, SD mount, battery readout, and USB transfer mode.
 - Open at least one cached `.rsvp` book.
 - Convert at least one fresh `.epub` on-device and confirm the resulting `.rsvp` opens afterward.
 - Re-open the converted book and confirm the library shows the cached `.rsvp` rather than the pending EPUB.
@@ -33,7 +32,6 @@ Use this before pushing a public milestone or tagging a release.
 git status --short
 git diff --check
 pio run
-pio run -e waveshare_esp32s3_usb_msc
 python3 tools/export_web_firmware.py
 git add .
 git commit -m "Prepare RSVP reader public milestone"

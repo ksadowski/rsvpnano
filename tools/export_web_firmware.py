@@ -15,15 +15,10 @@ WEB_FIRMWARE_DIR = ROOT / "web" / "firmware"
 BOOT_APP0_GLOB = "framework-arduinoespressif32*/tools/partitions/boot_app0.bin"
 
 EXPORTS = {
-    "waveshare_esp32s3": {
-        "binary": "rsvp-nano-v2.bin",
-        "manifest": "manifest.json",
-        "label": "Reader firmware",
-    },
     "waveshare_esp32s3_usb_msc": {
-        "binary": "rsvp-nano-v2-usb-msc.bin",
-        "manifest": "manifest-usb-msc.json",
-        "label": "USB transfer firmware",
+        "binary": "rsvp-nano.bin",
+        "manifest": "manifest.json",
+        "label": "RSVP Nano firmware",
     },
 }
 

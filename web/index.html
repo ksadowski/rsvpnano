@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>RSVP Nano v2 Web Flasher</title>
+    <title>RSVP Nano Web Flasher</title>
     <script
       type="module"
       src="https://unpkg.com/esp-web-tools@10.1.0/dist/web/install-button.js?module"
@@ -196,33 +196,23 @@
       <section class="hero">
         <div class="card intro">
           <p class="eyebrow">Browser firmware installer</p>
-          <h1>RSVP Nano v2</h1>
+          <h1>RSVP Nano</h1>
           <p class="lead">
             Flash the reader from Chrome or Edge without installing VS Code, PlatformIO,
-            or command-line tools. Connect the device by USB, choose the firmware below,
+            or command-line tools. Connect the device by USB, click install,
             and let the browser write it directly to the ESP32-S3.
           </p>
         </div>
 
         <div class="card install">
           <h2>Install Firmware</h2>
-          <p>Use the normal reader firmware unless you specifically need USB SD-card transfer mode.</p>
+          <p>This release includes the reader plus USB SD-card transfer support in one firmware.</p>
 
           <div class="install-option">
-            <strong>Reader firmware</strong>
-            <span>Main RSVP reader with SD books and on-device EPUB conversion.</span>
+            <strong>RSVP Nano firmware</strong>
+            <span>Main reader firmware with on-device EPUB conversion and USB SD-card transfer mode.</span>
             <esp-web-install-button manifest="firmware/manifest.json">
-              <button slot="activate">Install Reader Firmware</button>
-              <span slot="unsupported">Use Chrome or Edge on desktop with Web Serial support.</span>
-              <span slot="not-allowed">This page must be opened over HTTPS or localhost.</span>
-            </esp-web-install-button>
-          </div>
-
-          <div class="install-option">
-            <strong>USB transfer firmware</strong>
-            <span>Optional build for copying books to the SD card over USB.</span>
-            <esp-web-install-button manifest="firmware/manifest-usb-msc.json">
-              <button slot="activate">Install USB Transfer Firmware</button>
+              <button slot="activate">Install Firmware</button>
               <span slot="unsupported">Use Chrome or Edge on desktop with Web Serial support.</span>
               <span slot="not-allowed">This page must be opened over HTTPS or localhost.</span>
             </esp-web-install-button>
@@ -250,7 +240,7 @@
       </section>
 
       <footer>
-        RSVP Nano v2 is open source. Build it, modify it, improve it, and share what you make.
+        RSVP Nano is open source. Build it, modify it, improve it, and share what you make.
       </footer>
     </main>
   </body>
