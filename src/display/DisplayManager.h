@@ -5,7 +5,7 @@
 
 class DisplayManager {
  public:
-  enum class FontFamily : uint8_t { Sans = 0, Serif = 1 };
+  enum class FontFamily : uint8_t { Sans = 0, Serif = 1, Classy = 2 };
 
   struct TypographyConfig {
     int8_t trackingPx = 0;
@@ -63,6 +63,10 @@ class DisplayManager {
   void renderStatus(const String &title, const String &line1 = "", const String &line2 = "");
   void renderProgress(const String &title, const String &line1 = "", const String &line2 = "",
                       int progressPercent = -1);
+  // Top-left status dot driven by the App's touch handler.
+  // mode 0 = hidden, 1 = touch active (green), 2 = autoplay latched (cyan).
+  // Repaints the next frame so the dot appears/disappears immediately.
+  void setTouchIndicator(uint8_t mode);
 
  private:
   bool initPanel();
@@ -99,6 +103,9 @@ class DisplayManager {
   void drawTinyTextAt(const String &text, int x, int y, uint16_t color, int scale);
   void drawTinyTextCentered(const String &text, int y, uint16_t color, int scale);
   void drawBatteryBadge();
+  // Top-left status dot. Painted from inside drawBatteryBadge so every
+  // render path picks it up without touching individual renderers.
+  void drawTouchIndicator();
   void drawFooter(const String &chapterLabel, uint8_t progressPercent);
   void drawRsvpAnchorGuide(int anchorX, int textY, int textHeight);
   void drawWordAt(const String &word, int x, int y, uint16_t color);
@@ -121,4 +128,7 @@ class DisplayManager {
   bool nightMode_ = false;
   String lastRenderKey_;
   String batteryLabel_;
+  // Latest mode requested via setTouchIndicator. Drawn from drawBatteryBadge
+  // (which every renderer calls just before flushing the frame).
+  uint8_t touchIndicatorMode_ = 0;
 };

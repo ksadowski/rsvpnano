@@ -13,19 +13,28 @@
 #include "display/EmbeddedSerifFont70.h"
 #include "display/EmbeddedSansFont.h"
 #include "display/EmbeddedSansFont70.h"
+#include "display/EmbeddedClassyFont.h"
+#include "display/EmbeddedClassyFont70.h"
 #include "display/axs15231b.h"
 #include "util/Utf8.h"
 
-// Sanity-check: both font families must share size metrics so the renderer
-// can dispatch between them at runtime without changing layout math.
+// Sanity-check: every font family must share size metrics so the renderer can
+// dispatch between them at runtime without changing layout math. New families
+// must be regenerated with matching --force-height to join this set.
 static_assert(kEmbeddedSansHeight == kEmbeddedSerifHeight,
               "Sans and Serif 52pt families must have the same glyph height");
+static_assert(kEmbeddedSansHeight == kEmbeddedClassyHeight,
+              "Sans and Classy 52pt families must have the same glyph height");
 static_assert(kEmbeddedSans70Height == kEmbeddedSerif70Height,
               "Sans and Serif 35pt families must have the same glyph height");
-static_assert(kEmbeddedSansFirstChar == kEmbeddedSerifFirstChar,
-              "Sans and Serif font tables must cover the same ASCII range");
-static_assert(kEmbeddedSansLastChar == kEmbeddedSerifLastChar,
-              "Sans and Serif font tables must cover the same ASCII range");
+static_assert(kEmbeddedSans70Height == kEmbeddedClassy70Height,
+              "Sans and Classy 35pt families must have the same glyph height");
+static_assert(kEmbeddedSansFirstChar == kEmbeddedSerifFirstChar &&
+                  kEmbeddedSansFirstChar == kEmbeddedClassyFirstChar,
+              "All reader font tables must cover the same ASCII range");
+static_assert(kEmbeddedSansLastChar == kEmbeddedSerifLastChar &&
+                  kEmbeddedSansLastChar == kEmbeddedClassyLastChar,
+              "All reader font tables must cover the same ASCII range");
 
 namespace {
 constexpr int kDisplayWidth = BoardConfig::DISPLAY_WIDTH;
@@ -211,23 +220,37 @@ constexpr TinyGlyph kTinyGlyphs[] = {
     {'_', {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1F}},
 };
 
-// Active reader font family. Settings → Display → Font flips this between the
-// pre-generated Sans (Noto Sans) and Serif (Noto Serif) tables. Both families
-// share glyph dimensions (see static_asserts above) so the layout maths do not
-// have to change.
-enum class ReaderFontFamily : uint8_t { Sans = 0, Serif = 1 };
+// Active reader font family. Settings → Display → Font cycles between the
+// pre-generated Sans (Noto Sans), Serif (Noto Serif), and Classy (EB Garamond)
+// tables. Every family shares glyph dimensions (see static_asserts above) so
+// the layout maths do not have to change.
+enum class ReaderFontFamily : uint8_t { Sans = 0, Serif = 1, Classy = 2 };
 ReaderFontFamily g_readerFontFamily = ReaderFontFamily::Sans;
 
 // Returns the bitmap base for the active 52pt family. Used everywhere we read
 // glyph pixels via `bitmapBase + glyph.bitmapOffset`.
 const uint8_t *readerBitmaps() {
-  return g_readerFontFamily == ReaderFontFamily::Serif ? kEmbeddedSerifBitmaps
-                                                       : kEmbeddedSansBitmaps;
+  switch (g_readerFontFamily) {
+    case ReaderFontFamily::Serif:
+      return kEmbeddedSerifBitmaps;
+    case ReaderFontFamily::Classy:
+      return kEmbeddedClassyBitmaps;
+    case ReaderFontFamily::Sans:
+    default:
+      return kEmbeddedSansBitmaps;
+  }
 }
 
 const uint8_t *readerBitmaps70() {
-  return g_readerFontFamily == ReaderFontFamily::Serif ? kEmbeddedSerif70Bitmaps
-                                                       : kEmbeddedSans70Bitmaps;
+  switch (g_readerFontFamily) {
+    case ReaderFontFamily::Serif:
+      return kEmbeddedSerif70Bitmaps;
+    case ReaderFontFamily::Classy:
+      return kEmbeddedClassy70Bitmaps;
+    case ReaderFontFamily::Sans:
+    default:
+      return kEmbeddedSans70Bitmaps;
+  }
 }
 
 // Copies the four metric fields out of any font-family struct into the
@@ -255,116 +278,72 @@ const EmbeddedSans70Glyph &copyTo35ptCache(const SrcGlyph &src) {
   return cached;
 }
 
+// Binary-searches the sparse extras side table for `cp`. Returns nullptr when
+// the code point isn't present.
+template <typename ExtraGlyph>
+const ExtraGlyph *findExtra(uint32_t cp, const ExtraGlyph *extras,
+                            size_t extraCount) {
+  size_t lo = 0;
+  size_t hi = extraCount;
+  while (lo < hi) {
+    const size_t mid = lo + (hi - lo) / 2;
+    const uint32_t midCp = extras[mid].codepoint;
+    if (midCp == cp) {
+      return &extras[mid];
+    }
+    if (midCp < cp) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return nullptr;
+}
+
+// One macro per size tier keeps the per-family body uniform. Each branch does
+// ASCII fast-path, sparse extras lookup, then '?' fallback, copying metrics
+// into the renderer-facing cache.
+#define RSVP_RESOLVE_READER_GLYPH(PREFIX, CACHE_FN)                             \
+  do {                                                                         \
+    if (cp >= k##PREFIX##FirstChar && cp <= k##PREFIX##LastChar) {             \
+      return CACHE_FN(k##PREFIX##Glyphs[cp - k##PREFIX##FirstChar]);           \
+    }                                                                          \
+    if (k##PREFIX##ExtraGlyphCount > 0) {                                      \
+      if (const auto *extra =                                                  \
+              findExtra(cp, k##PREFIX##ExtraGlyphs,                            \
+                        k##PREFIX##ExtraGlyphCount)) {                         \
+        return CACHE_FN(*extra);                                               \
+      }                                                                        \
+    }                                                                          \
+    return CACHE_FN(                                                           \
+        k##PREFIX##Glyphs[static_cast<uint8_t>('?') - k##PREFIX##FirstChar]);  \
+  } while (0)
+
 const EmbeddedSansGlyph &glyphFor(uint32_t cp) {
-  if (g_readerFontFamily == ReaderFontFamily::Serif) {
-    if (cp >= kEmbeddedSerifFirstChar && cp <= kEmbeddedSerifLastChar) {
-      return copyTo52ptCache(kEmbeddedSerifGlyphs[cp - kEmbeddedSerifFirstChar]);
-    }
-    if (kEmbeddedSerifExtraGlyphCount > 0) {
-      size_t lo = 0;
-      size_t hi = kEmbeddedSerifExtraGlyphCount;
-      while (lo < hi) {
-        const size_t mid = lo + (hi - lo) / 2;
-        const uint32_t midCp = kEmbeddedSerifExtraGlyphs[mid].codepoint;
-        if (midCp == cp) {
-          return copyTo52ptCache(kEmbeddedSerifExtraGlyphs[mid]);
-        }
-        if (midCp < cp) {
-          lo = mid + 1;
-        } else {
-          hi = mid;
-        }
-      }
-    }
-    return copyTo52ptCache(
-        kEmbeddedSerifGlyphs[static_cast<uint8_t>('?') - kEmbeddedSerifFirstChar]);
+  switch (g_readerFontFamily) {
+    case ReaderFontFamily::Serif:
+      RSVP_RESOLVE_READER_GLYPH(EmbeddedSerif, copyTo52ptCache);
+    case ReaderFontFamily::Classy:
+      RSVP_RESOLVE_READER_GLYPH(EmbeddedClassy, copyTo52ptCache);
+    case ReaderFontFamily::Sans:
+    default:
+      RSVP_RESOLVE_READER_GLYPH(EmbeddedSans, copyTo52ptCache);
   }
-
-  if (cp >= kEmbeddedSansFirstChar && cp <= kEmbeddedSansLastChar) {
-    return kEmbeddedSansGlyphs[cp - kEmbeddedSansFirstChar];
-  }
-
-  if (kEmbeddedSansExtraGlyphCount > 0) {
-    size_t lo = 0;
-    size_t hi = kEmbeddedSansExtraGlyphCount;
-    while (lo < hi) {
-      const size_t mid = lo + (hi - lo) / 2;
-      const uint32_t midCp = kEmbeddedSansExtraGlyphs[mid].codepoint;
-      if (midCp == cp) {
-        const EmbeddedSansExtraGlyph &extra = kEmbeddedSansExtraGlyphs[mid];
-        static EmbeddedSansGlyph cached;
-        cached.bitmapOffset = extra.bitmapOffset;
-        cached.xOffset = extra.xOffset;
-        cached.width = extra.width;
-        cached.xAdvance = extra.xAdvance;
-        return cached;
-      }
-      if (midCp < cp) {
-        lo = mid + 1;
-      } else {
-        hi = mid;
-      }
-    }
-  }
-
-  return kEmbeddedSansGlyphs[static_cast<uint8_t>('?') - kEmbeddedSansFirstChar];
 }
 
 const EmbeddedSans70Glyph &glyph70For(uint32_t cp) {
-  if (g_readerFontFamily == ReaderFontFamily::Serif) {
-    if (cp >= kEmbeddedSerif70FirstChar && cp <= kEmbeddedSerif70LastChar) {
-      return copyTo35ptCache(
-          kEmbeddedSerif70Glyphs[cp - kEmbeddedSerif70FirstChar]);
-    }
-    if (kEmbeddedSerif70ExtraGlyphCount > 0) {
-      size_t lo = 0;
-      size_t hi = kEmbeddedSerif70ExtraGlyphCount;
-      while (lo < hi) {
-        const size_t mid = lo + (hi - lo) / 2;
-        const uint32_t midCp = kEmbeddedSerif70ExtraGlyphs[mid].codepoint;
-        if (midCp == cp) {
-          return copyTo35ptCache(kEmbeddedSerif70ExtraGlyphs[mid]);
-        }
-        if (midCp < cp) {
-          lo = mid + 1;
-        } else {
-          hi = mid;
-        }
-      }
-    }
-    return copyTo35ptCache(
-        kEmbeddedSerif70Glyphs[static_cast<uint8_t>('?') - kEmbeddedSerif70FirstChar]);
+  switch (g_readerFontFamily) {
+    case ReaderFontFamily::Serif:
+      RSVP_RESOLVE_READER_GLYPH(EmbeddedSerif70, copyTo35ptCache);
+    case ReaderFontFamily::Classy:
+      RSVP_RESOLVE_READER_GLYPH(EmbeddedClassy70, copyTo35ptCache);
+    case ReaderFontFamily::Sans:
+    default:
+      RSVP_RESOLVE_READER_GLYPH(EmbeddedSans70, copyTo35ptCache);
   }
-
-  if (cp >= kEmbeddedSans70FirstChar && cp <= kEmbeddedSans70LastChar) {
-    return kEmbeddedSans70Glyphs[cp - kEmbeddedSans70FirstChar];
-  }
-
-  if (kEmbeddedSans70ExtraGlyphCount > 0) {
-    size_t lo = 0;
-    size_t hi = kEmbeddedSans70ExtraGlyphCount;
-    while (lo < hi) {
-      const size_t mid = lo + (hi - lo) / 2;
-      const uint32_t midCp = kEmbeddedSans70ExtraGlyphs[mid].codepoint;
-      if (midCp == cp) {
-        const EmbeddedSans70ExtraGlyph &extra = kEmbeddedSans70ExtraGlyphs[mid];
-        static EmbeddedSans70Glyph cached;
-        cached.bitmapOffset = extra.bitmapOffset;
-        cached.xOffset = extra.xOffset;
-        cached.width = extra.width;
-        cached.xAdvance = extra.xAdvance;
-        return cached;
-      }
-      if (midCp < cp) {
-        lo = mid + 1;
-      } else {
-        hi = mid;
-      }
-    }
-  }
-
-  return kEmbeddedSans70Glyphs[static_cast<uint8_t>('?') - kEmbeddedSans70FirstChar];
 }
+
+#undef RSVP_RESOLVE_READER_GLYPH
 
 // Decodes the UTF-8 string into a list of code points. Used so that all the
 // per-glyph rendering loops can address characters as logical units regardless
@@ -863,6 +842,16 @@ DisplayManager::~DisplayManager() {
   }
 }
 
+void DisplayManager::setTouchIndicator(uint8_t mode) {
+  if (touchIndicatorMode_ == mode) {
+    return;
+  }
+  touchIndicatorMode_ = mode;
+  // Force the next renderer call to redraw rather than reuse the cached frame
+  // — the dot has to appear/disappear immediately on touch transitions.
+  lastRenderKey_ = "";
+}
+
 void DisplayManager::setBatteryLabel(const String &label) {
   if (batteryLabel_ == label) {
     return;
@@ -926,8 +915,19 @@ DisplayManager::TypographyConfig DisplayManager::typographyConfig() const {
 }
 
 void DisplayManager::setFontFamily(FontFamily family) {
-  const ReaderFontFamily next =
-      family == FontFamily::Serif ? ReaderFontFamily::Serif : ReaderFontFamily::Sans;
+  ReaderFontFamily next = ReaderFontFamily::Sans;
+  switch (family) {
+    case FontFamily::Serif:
+      next = ReaderFontFamily::Serif;
+      break;
+    case FontFamily::Classy:
+      next = ReaderFontFamily::Classy;
+      break;
+    case FontFamily::Sans:
+    default:
+      next = ReaderFontFamily::Sans;
+      break;
+  }
   if (g_readerFontFamily == next) {
     return;
   }
@@ -937,7 +937,15 @@ void DisplayManager::setFontFamily(FontFamily family) {
 }
 
 DisplayManager::FontFamily DisplayManager::fontFamily() const {
-  return g_readerFontFamily == ReaderFontFamily::Serif ? FontFamily::Serif : FontFamily::Sans;
+  switch (g_readerFontFamily) {
+    case ReaderFontFamily::Serif:
+      return FontFamily::Serif;
+    case ReaderFontFamily::Classy:
+      return FontFamily::Classy;
+    case ReaderFontFamily::Sans:
+    default:
+      return FontFamily::Sans;
+  }
 }
 
 bool DisplayManager::darkMode() const { return darkMode_; }
@@ -1488,13 +1496,29 @@ void DisplayManager::drawTinyTextCentered(const String &text, int y, uint16_t co
 }
 
 void DisplayManager::drawBatteryBadge() {
-  if (batteryLabel_.isEmpty()) {
+  if (!batteryLabel_.isEmpty()) {
+    const int width = measureTinyTextWidth(batteryLabel_, kTinyScale);
+    const int x = std::max(kFooterMarginX, kDisplayWidth - kFooterMarginX - width);
+    drawTinyTextAt(batteryLabel_, x, kFooterMarginBottom, footerColor(), kTinyScale);
+  }
+  // Piggy-back on the badge call site so every renderer picks up the dot
+  // without having to know about it individually.
+  drawTouchIndicator();
+}
+
+void DisplayManager::drawTouchIndicator() {
+  if (touchIndicatorMode_ == 0) {
     return;
   }
 
-  const int width = measureTinyTextWidth(batteryLabel_, kTinyScale);
-  const int x = std::max(kFooterMarginX, kDisplayWidth - kFooterMarginX - width);
-  drawTinyTextAt(batteryLabel_, x, kFooterMarginBottom, footerColor(), kTinyScale);
+  // Top-left, mirroring the battery badge's top-right corner. Sized to match
+  // the tiny-text height so it stays visually proportional to the HUD.
+  constexpr int kIndicatorSize = 14;
+  const int x = kFooterMarginX;
+  const int y = kFooterMarginBottom;
+  // Pure-channel RGB565: green = 0x07E0, cyan = 0x07FF.
+  const uint16_t color = (touchIndicatorMode_ == 2) ? 0x07FF : 0x07E0;
+  fillVirtualRect(x, y, kIndicatorSize, kIndicatorSize, color);
 }
 
 void DisplayManager::drawFooter(const String &chapterLabel, uint8_t progressPercent) {

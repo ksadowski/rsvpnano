@@ -149,6 +149,17 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_SYMBOL_PREFIX,
         help=f"Prefix for generated struct/constants. Default: {DEFAULT_SYMBOL_PREFIX}",
     )
+    parser.add_argument(
+        "--force-height",
+        type=int,
+        default=0,
+        help=(
+            "If set, pad the cropped glyph band (symmetrically, top first) with\n"
+            "transparent rows until it reaches exactly this height. Used to make\n"
+            "alternate font families share identical metrics with the Sans/Serif\n"
+            "reference families so the renderer can hot-swap bitmaps."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -253,6 +264,33 @@ def main() -> None:
     crop_top = max(0, global_top - FONT_TOP_PADDING)
     crop_bottom = min(CANVAS_HEIGHT - 1, global_bottom + FONT_BOTTOM_PADDING)
     font_height = crop_bottom - crop_top + 1
+
+    if args.force_height:
+        target = args.force_height
+        if font_height > target:
+            sys.exit(
+                f"Detected glyph height {font_height} already exceeds "
+                f"--force-height={target}; pick a smaller --point-size."
+            )
+        # Pad transparently by widening the crop window, alternating top/bottom
+        # (top first) so the resulting band remains roughly baseline-centred.
+        extend_top = True
+        while font_height < target:
+            if extend_top and crop_top > 0:
+                crop_top -= 1
+            elif not extend_top and crop_bottom < CANVAS_HEIGHT - 1:
+                crop_bottom += 1
+            elif crop_top > 0:
+                crop_top -= 1
+            elif crop_bottom < CANVAS_HEIGHT - 1:
+                crop_bottom += 1
+            else:
+                sys.exit(
+                    f"Canvas exhausted before reaching --force-height={target}; "
+                    "raise CANVAS_HEIGHT in the generator."
+                )
+            font_height = crop_bottom - crop_top + 1
+            extend_top = not extend_top
     bitmap_bytes: list[int] = []
     ascii_entries: list[str] = []
     extra_entries: list[str] = []

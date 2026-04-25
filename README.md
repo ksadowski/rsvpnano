@@ -149,22 +149,26 @@ The reader is UTF-8 throughout. Books in English plus Polish (full diacritics:
 European languages with Latin-1 accented letters render with the embedded
 serif font.
 
-The reader ships with two interchangeable font families:
+The reader ships with three interchangeable font families:
 
 - **Sans** (Noto Sans) – the default.
-- **Serif** (Noto Serif) – classic book look, optional.
+- **Serif** (Noto Serif) – classic book look.
+- **Classy** (EB Garamond) – old-style book serif with more character.
 
 Switch between them at runtime in **Settings → Display → Font**. The choice is
-persisted across reboots and applies to both reader words and menu text.
+persisted across reboots and applies to both reader words and menu text. All
+three families are rasterised at identical glyph heights so layout maths stay
+unchanged when you swap — alternate families use `--force-height` in the
+generator to pad to the Sans/Serif reference metrics.
 
-If you regenerate the embedded fonts, you only need Python 3 and Pillow
-(the TrueType files are downloaded automatically on first run for Sans, and
-manually for Serif):
+The three TrueType sources live in `tools/fonts/` (committed to the repo
+under SIL OFL-1.1, see `tools/fonts/LICENSES.md`). If you regenerate the
+embedded headers you only need Python 3 and Pillow:
 
 ```sh
 python -m pip install Pillow
 
-# Sans family (Noto Sans, downloaded automatically on first run):
+# Sans family (Noto Sans):
 python tools/generate_embedded_serif_font.py \
     --font-file tools/fonts/NotoSans-Regular.ttf --font-name NotoSans \
     --symbol-prefix EmbeddedSans \
@@ -174,7 +178,7 @@ python tools/generate_embedded_serif_font.py --point-size 35 \
     --symbol-prefix EmbeddedSans70 \
     --output src/display/EmbeddedSansFont70.h
 
-# Serif family (place NotoSerif-Regular.ttf in tools/fonts/ first):
+# Serif family (Noto Serif):
 python tools/generate_embedded_serif_font.py \
     --font-file tools/fonts/NotoSerif-Regular.ttf --font-name NotoSerif \
     --symbol-prefix EmbeddedSerif \
@@ -183,10 +187,22 @@ python tools/generate_embedded_serif_font.py --point-size 35 \
     --font-file tools/fonts/NotoSerif-Regular.ttf --font-name NotoSerif \
     --symbol-prefix EmbeddedSerif70 \
     --output src/display/EmbeddedSerifFont70.h
+
+# Classy family (EB Garamond; --force-height pads to match Sans/Serif metrics):
+# EB Garamond ships as a variable font, so Pillow picks up its default weight.
+python tools/generate_embedded_serif_font.py \
+    --font-file tools/fonts/EBGaramond-Regular.ttf --font-name EBGaramond \
+    --symbol-prefix EmbeddedClassy --force-height 69 \
+    --output src/display/EmbeddedClassyFont.h
+python tools/generate_embedded_serif_font.py --point-size 34 \
+    --font-file tools/fonts/EBGaramond-Regular.ttf --font-name EBGaramond \
+    --symbol-prefix EmbeddedClassy70 --force-height 47 \
+    --output src/display/EmbeddedClassyFont70.h
 ```
 
-The script caches Noto Sans Regular into `tools/fonts/`. Pass
-`--font-file path/to/font.ttf` to use a different TrueType file.
+Pass `--font-file path/to/font.ttf` to use a different TrueType file. If
+`--font-file` is omitted, the script searches `tools/fonts/` and common OS
+font directories, falling back to a one-time download of Noto Sans Regular.
 
 The list of extra Unicode code points (Polish, Latin-1, common typographic
 punctuation) lives at the top of `tools/generate_embedded_serif_font.py`. Add

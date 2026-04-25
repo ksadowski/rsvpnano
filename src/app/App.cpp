@@ -26,6 +26,10 @@ constexpr uint32_t kPowerOffReleaseWaitMs = 4000;
 constexpr uint32_t kBatterySampleIntervalMs = 180000;
 constexpr uint32_t kTouchPlayHoldMs = 180;
 constexpr uint32_t kThemeToggleHoldMs = 900;
+// Long-press to latch autoplay: keep holding past this threshold and the
+// reader stays in `Playing` after you lift your finger. Any subsequent
+// finger-down stops autoplay and routes through the normal Paused gestures.
+constexpr uint32_t kAutoplayLatchHoldMs = 1200;
 constexpr uint16_t kSwipeThresholdPx = 40;
 constexpr uint16_t kAxisBiasPx = 12;
 constexpr uint16_t kTapSlopPx = 18;
@@ -145,7 +149,7 @@ constexpr const char *kPrefRecentSeq = "seq";
 constexpr const char *kReaderFontSizeLabels[] = {"Large", "Medium", "Small"};
 constexpr size_t kReaderFontSizeCount =
     sizeof(kReaderFontSizeLabels) / sizeof(kReaderFontSizeLabels[0]);
-constexpr const char *kReaderFontFamilyLabels[] = {"Sans", "Serif"};
+constexpr const char *kReaderFontFamilyLabels[] = {"Sans", "Serif", "Classy"};
 constexpr size_t kReaderFontFamilyCount =
     sizeof(kReaderFontFamilyLabels) / sizeof(kReaderFontFamilyLabels[0]);
 constexpr size_t kPhantomBeforeCharTargets[] = {64, 96, 144};
@@ -349,6 +353,8 @@ void App::update(uint32_t nowMs) {
   updateState(nowMs);
   updateReader(nowMs);
   handleTouch(nowMs);
+  maybeLatchAutoplay(nowMs);
+  updateTouchIndicator();
   updateWpmFeedback(nowMs);
   maybeSaveReadingPosition(nowMs);
 
@@ -418,6 +424,8 @@ void App::setState(AppState nextState, uint32_t nowMs) {
   }
   if (nextState != AppState::Playing) {
     touchPlayHeld_ = false;
+    touchAutoplay_ = false;
+    holdStartedMs_ = 0;
   }
 
   state_ = nextState;
@@ -473,7 +481,11 @@ void App::updateState(uint32_t nowMs) {
     return;
   }
 
-  if (touchPlayHeld_) {
+  // Stay in Playing while a finger is actively holding (touchPlayHeld_) OR
+  // while autoplay is latched on (touchAutoplay_). Without the autoplay
+  // check, the next tick after `maybeLatchAutoplay` would force Paused and
+  // setState would immediately clear `touchAutoplay_` again.
+  if (touchPlayHeld_ || touchAutoplay_) {
     setState(AppState::Playing, nowMs);
     return;
   }
@@ -592,6 +604,9 @@ void App::openMainMenu(uint32_t nowMs) {
   pausedTouch_.active = false;
   pausedTouchIntent_ = TouchIntent::None;
   touchPlayHeld_ = false;
+  touchAutoplay_ = false;
+  holdStartedMs_ = 0;
+  touchSampleActive_ = false;
   menuScreen_ = MenuScreen::Main;
   menuSelectedIndex_ = MenuResume;
   wpmFeedbackVisible_ = false;
@@ -611,8 +626,19 @@ void App::applyDisplayPreferences(uint32_t nowMs, bool rerender) {
   display_.setDarkMode(darkMode_);
   display_.setNightMode(nightMode_);
   display_.setBrightnessPercent(currentBrightnessPercent());
-  display_.setFontFamily(readerFontFamilyIndex_ == 1 ? DisplayManager::FontFamily::Serif
-                                                     : DisplayManager::FontFamily::Sans);
+  DisplayManager::FontFamily family = DisplayManager::FontFamily::Sans;
+  switch (readerFontFamilyIndex_) {
+    case 1:
+      family = DisplayManager::FontFamily::Serif;
+      break;
+    case 2:
+      family = DisplayManager::FontFamily::Classy;
+      break;
+    default:
+      family = DisplayManager::FontFamily::Sans;
+      break;
+  }
+  display_.setFontFamily(family);
 
   if (!rerender) {
     return;
@@ -783,6 +809,9 @@ void App::handleTouch(uint32_t nowMs) {
     pausedTouch_.active = false;
     pausedTouchIntent_ = TouchIntent::None;
     touchPlayHeld_ = false;
+    touchAutoplay_ = false;
+    holdStartedMs_ = 0;
+    touchSampleActive_ = false;
     return;
   }
 
@@ -794,6 +823,15 @@ void App::handleTouch(uint32_t nowMs) {
   Serial.printf("[touch] phase=%s touched=%u x=%u y=%u gesture=%u state=%s\n",
                 touchPhaseName(ev.phase), ev.touched ? 1 : 0, ev.x, ev.y, ev.gesture,
                 stateName(state_));
+
+  // Maintain the simple "is a finger currently on the screen" flag used by
+  // updateTouchIndicator. Start/Move keep it true, End clears it.
+  if (ev.phase == TouchPhase::End) {
+    touchSampleActive_ = false;
+  } else {
+    touchSampleActive_ = true;
+  }
+
   if (state_ == AppState::Menu) {
     applyMenuTouchGesture(ev, nowMs);
   } else {
@@ -802,12 +840,35 @@ void App::handleTouch(uint32_t nowMs) {
 }
 
 void App::applyPausedTouchGesture(const TouchEvent &event, uint32_t nowMs) {
+  // Hold-to-play release: when Playing was started by holding, lifting the
+  // finger always returns to Paused. Doesn't fire after the long-press latch
+  // (that flips touchPlayHeld_ off), so latched autoplay survives the lift.
   if (event.phase == TouchPhase::End && touchPlayHeld_) {
     touchPlayHeld_ = false;
     pausedTouch_.active = false;
     pausedTouchIntent_ = TouchIntent::None;
     setState(AppState::Paused, nowMs);
     return;
+  }
+
+  // Latched autoplay: any new finger-down stops autoplay and the same Start
+  // proceeds through the regular Paused gesture handler. The lift of the
+  // latching finger itself is silently absorbed (pausedTouch_.active was set
+  // by maybeLatchAutoplay to mark that finger as still down).
+  if (state_ == AppState::Playing && touchAutoplay_) {
+    if (event.phase == TouchPhase::End && pausedTouch_.active) {
+      pausedTouch_.active = false;
+      return;
+    }
+    if (event.phase != TouchPhase::Start) {
+      return;
+    }
+    Serial.println("[touch] autoplay stop (touch)");
+    touchAutoplay_ = false;
+    setState(AppState::Paused, nowMs);
+    saveReadingPosition(true);
+    // Fall through to the Start handler below so this same press can become
+    // a fresh hold-to-play / scrub / wpm gesture without lifting the finger.
   }
 
   if (state_ == AppState::Playing) {
@@ -849,6 +910,7 @@ void App::applyPausedTouchGesture(const TouchEvent &event, uint32_t nowMs) {
   if (!ended && pausedTouchIntent_ == TouchIntent::None &&
       pressDurationMs >= kTouchPlayHoldMs && tapLike) {
     touchPlayHeld_ = true;
+    holdStartedMs_ = pausedTouch_.startMs;
     pausedTouchIntent_ = TouchIntent::PlayHold;
     wpmFeedbackVisible_ = false;
     setState(AppState::Playing, nowMs);
@@ -895,8 +957,43 @@ void App::applyPausedTouchGesture(const TouchEvent &event, uint32_t nowMs) {
     pausedTouch_.active = false;
     pausedTouchIntent_ = TouchIntent::None;
   }
+}
 
-  // Paused taps are intentionally ignored unless they become part of the UX.
+void App::maybeLatchAutoplay(uint32_t nowMs) {
+  // Promote a still-held hold-to-play press into sticky autoplay once it
+  // crosses the latch threshold. Runs from update() so the latch fires as
+  // soon as the time elapses, even between TouchHandler poll events.
+  if (!touchPlayHeld_) {
+    return;
+  }
+  if (holdStartedMs_ == 0 || (nowMs - holdStartedMs_) < kAutoplayLatchHoldMs) {
+    return;
+  }
+
+  Serial.println("[touch] long-press -> autoplay latch");
+  touchPlayHeld_ = false;
+  touchAutoplay_ = true;
+  // Mark the latching finger as "still down" so the End event from this same
+  // press is silently absorbed by applyPausedTouchGesture instead of being
+  // treated as a stop interaction.
+  pausedTouch_.active = true;
+  pausedTouchIntent_ = TouchIntent::None;
+  // state stays Playing; reader keeps advancing on its own.
+}
+
+void App::updateTouchIndicator() {
+  // 0=off, 1=touch active (green), 2=autoplay latched (cyan).
+  uint8_t mode = 0;
+  if (touchAutoplay_) {
+    mode = 2;
+  } else if (touchSampleActive_) {
+    mode = 1;
+  }
+  if (mode == touchIndicatorMode_) {
+    return;
+  }
+  touchIndicatorMode_ = mode;
+  display_.setTouchIndicator(mode);
 }
 
 int App::scrubStepsForDrag(int deltaX) const {
@@ -1624,6 +1721,9 @@ void App::enterPowerOff(uint32_t nowMs) {
   pausedTouch_.active = false;
   pausedTouchIntent_ = TouchIntent::None;
   touchPlayHeld_ = false;
+  touchAutoplay_ = false;
+  holdStartedMs_ = 0;
+  touchSampleActive_ = false;
   contextViewVisible_ = false;
   wpmFeedbackVisible_ = false;
   menuScreen_ = MenuScreen::Main;

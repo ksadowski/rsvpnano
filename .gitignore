@@ -9,7 +9,10 @@ __pycache__/
 .vscode/ipch
 tools/*.epub
 tools/*.rsvp
-tools/fonts/
+# tools/fonts/ holds the three reader TTFs (Noto Sans, Noto Serif, EB Garamond).
+# They're committed so anyone can regenerate the embedded font headers without
+# hunting for the sources. Ignore only cached downloads outside that set.
+tools/fonts/*.tmp
 *.rsvp.tmp
 *.rsvp.failed
 *.rsvp.converting
