@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <vector>
 
+#include "reader/BookSource.h"
+
 struct ChapterMarker {
   String title;
   size_t wordIndex = 0;
@@ -11,14 +13,17 @@ struct ChapterMarker {
 struct BookContent {
   String title;
   String author;
-  std::vector<String> words;
+  // Backing source for words. May be an InMemoryBookSource (small books, demo)
+  // or a streaming source backed by a `.rsvp.idx` file. Held as shared_ptr so
+  // App / ReadingLoop can share the same source without copying.
+  BookSourcePtr source;
   std::vector<ChapterMarker> chapters;
   std::vector<size_t> paragraphStarts;
 
   void clear() {
     title = "";
     author = "";
-    words.clear();
+    source.reset();
     chapters.clear();
     paragraphStarts.clear();
   }

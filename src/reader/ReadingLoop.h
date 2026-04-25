@@ -1,7 +1,8 @@
 #pragma once
 
 #include <Arduino.h>
-#include <vector>
+
+#include "reader/BookSource.h"
 
 class ReadingLoop {
  public:
@@ -14,7 +15,7 @@ class ReadingLoop {
   void begin(uint32_t nowMs);
   void start(uint32_t nowMs);
   bool update(uint32_t nowMs);
-  void setWords(std::vector<String> words, uint32_t nowMs);
+  void setBookSource(BookSourcePtr source, uint32_t nowMs);
   void scrub(int steps);
   void seekTo(size_t wordIndex);
   void seekRelative(size_t baseIndex, int steps);
@@ -41,5 +42,5 @@ class ReadingLoop {
   uint16_t wpm_ = 300;
   PacingConfig pacingConfig_;
   String currentWord_;
-  std::vector<String> loadedWords_;
+  BookSourcePtr source_;
 };

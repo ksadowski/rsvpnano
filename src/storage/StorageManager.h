@@ -16,22 +16,26 @@ class StorageManager {
   void end();
   void listBooks();
   void refreshBooks();
-  bool loadFirstBookWords(std::vector<String> &words, String *loadedPath = nullptr);
   bool loadBookContent(size_t index, BookContent &book, String *loadedPath = nullptr,
                        size_t *loadedIndex = nullptr);
   size_t bookCount() const;
   String bookPath(size_t index) const;
   String bookDisplayName(size_t index) const;
   String bookAuthorName(size_t index) const;
-  bool loadBookWords(size_t index, std::vector<String> &words, String *loadedPath = nullptr,
-                     size_t *loadedIndex = nullptr);
 
  private:
-  bool parseFile(File &file, BookContent &book, bool rsvpFormat);
   bool ensureEpubConverted(const String &epubPath, String &rsvpPath);
   void refreshBookPaths();
   void notifyStatus(const char *title, const char *line1 = "", const char *line2 = "",
                     int progressPercent = -1);
+
+  // Streams a `.rsvp` file through the parser into a sidecar `.idx` file when
+  // the existing one is missing or stale, then opens a streaming book source
+  // backed by it. This is what keeps memory usage bounded for very large
+  // books (no per-word String stays in DRAM).
+  bool buildIdxForRsvp(const String &rsvpPath, const String &idxPath);
+  bool loadRsvpAsStreaming(const String &rsvpPath, BookContent &book);
+  bool loadTextIntoMemory(const String &path, BookContent &book);
 
   bool mounted_ = false;
   bool listedOnce_ = false;

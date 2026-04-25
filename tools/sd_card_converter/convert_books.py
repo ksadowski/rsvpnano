@@ -270,7 +270,7 @@ class RsvpWriter:
         if self.chapter_count == 0:
             self.lines.insert(4, f"@chapter {directive_text(fallback_chapter)}")
 
-        output_path.write_text("\n".join(self.lines).strip() + "\n", encoding="ascii")
+        output_path.write_text("\n".join(self.lines).strip() + "\n", encoding="utf-8")
 
 
 class HtmlEventsExtractor(HTMLParser):

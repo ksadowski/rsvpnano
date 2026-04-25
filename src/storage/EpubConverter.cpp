@@ -9,6 +9,8 @@
 #include <esp_heap_caps.h>
 #include <vector>
 
+#include "util/Utf8.h"
+
 namespace {
 
 constexpr uint32_t kZipEocdSignature = 0x06054B50UL;
@@ -327,30 +329,51 @@ String attributeValue(const String &tag, const char *name) {
   return "";
 }
 
-char decodedEntityChar(const String &entity) {
-  if (entity == "amp") {
-    return '&';
-  }
-  if (entity == "lt") {
-    return '<';
-  }
-  if (entity == "gt") {
-    return '>';
-  }
-  if (entity == "quot") {
-    return '"';
-  }
-  if (entity == "apos") {
-    return '\'';
-  }
-  if (entity == "nbsp") {
-    return ' ';
-  }
-  if (entity == "ndash" || entity == "mdash") {
-    return '-';
-  }
-  if (entity == "hellip") {
-    return '.';
+struct NamedEntity {
+  const char *name;
+  uint32_t codepoint;
+};
+
+// Named entities we recognize. Anything not listed here decodes to a space
+// so that downstream word splitting still treats it as a separator.
+constexpr NamedEntity kNamedEntities[] = {
+    {"amp", '&'},      {"lt", '<'},        {"gt", '>'},        {"quot", '"'},
+    {"apos", '\''},    {"nbsp", ' '},      {"ndash", 0x2013},  {"mdash", 0x2014},
+    {"hellip", 0x2026}, {"lsquo", 0x2018}, {"rsquo", 0x2019}, {"ldquo", 0x201C},
+    {"rdquo", 0x201D}, {"laquo", 0x00AB}, {"raquo", 0x00BB}, {"iexcl", 0x00A1},
+    {"iquest", 0x00BF}, {"szlig", 0x00DF}, {"euro", 0x20AC}, {"copy", 0x00A9},
+    {"reg", 0x00AE},   {"trade", 0x2122},
+    // Polish letters.
+    {"Aogon", 0x0104}, {"aogon", 0x0105}, {"Cacute", 0x0106}, {"cacute", 0x0107},
+    {"Eogon", 0x0118}, {"eogon", 0x0119}, {"Lstrok", 0x0141}, {"lstrok", 0x0142},
+    {"Nacute", 0x0143}, {"nacute", 0x0144}, {"Oacute", 0x00D3}, {"oacute", 0x00F3},
+    {"Sacute", 0x015A}, {"sacute", 0x015B}, {"Zacute", 0x0179}, {"zacute", 0x017A},
+    {"Zdot", 0x017B},  {"zdot", 0x017C},
+    // Common Latin-1 accented letters (uppercase).
+    {"Agrave", 0x00C0}, {"Aacute", 0x00C1}, {"Acirc", 0x00C2}, {"Atilde", 0x00C3},
+    {"Auml", 0x00C4},  {"Aring", 0x00C5}, {"AElig", 0x00C6}, {"Ccedil", 0x00C7},
+    {"Egrave", 0x00C8}, {"Eacute", 0x00C9}, {"Ecirc", 0x00CA}, {"Euml", 0x00CB},
+    {"Igrave", 0x00CC}, {"Iacute", 0x00CD}, {"Icirc", 0x00CE}, {"Iuml", 0x00CF},
+    {"ETH", 0x00D0},   {"Ntilde", 0x00D1}, {"Ograve", 0x00D2}, {"Ocirc", 0x00D4},
+    {"Otilde", 0x00D5}, {"Ouml", 0x00D6}, {"Oslash", 0x00D8}, {"Ugrave", 0x00D9},
+    {"Uacute", 0x00DA}, {"Ucirc", 0x00DB}, {"Uuml", 0x00DC}, {"Yacute", 0x00DD},
+    {"THORN", 0x00DE},
+    // Common Latin-1 accented letters (lowercase).
+    {"agrave", 0x00E0}, {"aacute", 0x00E1}, {"acirc", 0x00E2}, {"atilde", 0x00E3},
+    {"auml", 0x00E4},  {"aring", 0x00E5}, {"aelig", 0x00E6}, {"ccedil", 0x00E7},
+    {"egrave", 0x00E8}, {"eacute", 0x00E9}, {"ecirc", 0x00EA}, {"euml", 0x00EB},
+    {"igrave", 0x00EC}, {"iacute", 0x00ED}, {"icirc", 0x00EE}, {"iuml", 0x00EF},
+    {"eth", 0x00F0},   {"ntilde", 0x00F1}, {"ograve", 0x00F2}, {"ocirc", 0x00F4},
+    {"otilde", 0x00F5}, {"ouml", 0x00F6}, {"oslash", 0x00F8}, {"ugrave", 0x00F9},
+    {"uacute", 0x00FA}, {"ucirc", 0x00FB}, {"uuml", 0x00FC}, {"yacute", 0x00FD},
+    {"thorn", 0x00FE}, {"yuml", 0x00FF},
+};
+
+String decodedEntityString(const String &entity) {
+  for (const NamedEntity &named : kNamedEntities) {
+    if (entity == named.name) {
+      return utf8::encode(named.codepoint);
+    }
   }
 
   if (entity.startsWith("#")) {
@@ -367,29 +390,15 @@ char decodedEntityChar(const String &entity) {
                                                                ? entity[i] - '0'
                                                                : -1);
       if (digit < 0 || digit >= base) {
-        return ' ';
+        return String(" ");
       }
       value = value * base + static_cast<uint32_t>(digit);
     }
 
-    if (value >= 32 && value <= 126) {
-      return static_cast<char>(value);
-    }
-    if (value == 0x2018 || value == 0x2019) {
-      return '\'';
-    }
-    if (value == 0x201C || value == 0x201D) {
-      return '"';
-    }
-    if (value == 0x2013 || value == 0x2014) {
-      return '-';
-    }
-    if (value == 0x2026) {
-      return '.';
-    }
+    return utf8::encode(value);
   }
 
-  return ' ';
+  return String(" ");
 }
 
 void appendNormalizedChar(String &target, char c) {
@@ -397,7 +406,10 @@ void appendNormalizedChar(String &target, char c) {
     c = ' ';
   }
 
-  if (isWhitespace(c)) {
+  // Treat only ASCII whitespace as collapsible. UTF-8 continuation bytes
+  // (>= 0x80) must pass through verbatim; isWhitespace operates on signed char
+  // and could behave unpredictably on those byte values otherwise.
+  if (static_cast<unsigned char>(c) < 0x80u && isWhitespace(c)) {
     if (!target.isEmpty() && target[target.length() - 1] != ' ') {
       target += ' ';
     }
@@ -405,6 +417,12 @@ void appendNormalizedChar(String &target, char c) {
   }
 
   target += c;
+}
+
+void appendNormalizedString(String &target, const String &fragment) {
+  for (size_t i = 0; i < fragment.length(); ++i) {
+    appendNormalizedChar(target, fragment[i]);
+  }
 }
 
 String plainTextFromXmlFragment(const String &fragment) {
@@ -426,7 +444,7 @@ String plainTextFromXmlFragment(const String &fragment) {
     if (c == '&') {
       const int entityEnd = fragment.indexOf(';', i + 1);
       if (entityEnd > 0 && entityEnd - static_cast<int>(i) <= 12) {
-        appendNormalizedChar(text, decodedEntityChar(fragment.substring(i + 1, entityEnd)));
+        appendNormalizedString(text, decodedEntityString(fragment.substring(i + 1, entityEnd)));
         i = entityEnd;
         continue;
       }
@@ -713,24 +731,28 @@ bool writeXhtmlAsRsvp(const String &html, File &output, size_t &wordCount, size_
       continue;
     }
 
-    char decoded = c;
+    String decoded;
     if (c == '&') {
       const int entityEnd = html.indexOf(';', i + 1);
       if (entityEnd > 0 && entityEnd - static_cast<int>(i) <= 12) {
-        decoded = decodedEntityChar(html.substring(i + 1, entityEnd));
+        decoded = decodedEntityString(html.substring(i + 1, entityEnd));
         i = entityEnd;
+      } else {
+        decoded = String('&');
       }
+    } else {
+      decoded = String(c);
     }
 
     if (skipDepth > 0) {
       continue;
     }
     if (inHeading) {
-      appendNormalizedChar(heading, decoded);
+      appendNormalizedString(heading, decoded);
       continue;
     }
 
-    appendNormalizedChar(line, decoded);
+    appendNormalizedString(line, decoded);
     if (line.length() > kBufferedTextFlushThreshold) {
       if (!flushWordAlignedPrefix(output, line, wordCount, maxWords)) {
         return false;
@@ -819,6 +841,15 @@ class XhtmlRsvpStreamWriter {
     return true;
   }
 
+  bool processDecodedString(const String &fragment) {
+    for (size_t i = 0; i < fragment.length(); ++i) {
+      if (!processDecodedText(fragment[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   bool processTextChar(char c) {
     if (c == '<') {
       tag_ = "<";
@@ -895,7 +926,7 @@ class XhtmlRsvpStreamWriter {
   bool processEntityChar(char c) {
     if (c == ';') {
       mode_ = Mode::Text;
-      return processDecodedText(decodedEntityChar(entity_));
+      return processDecodedString(decodedEntityString(entity_));
     }
 
     if (c == '<') {

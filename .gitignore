@@ -9,6 +9,7 @@ __pycache__/
 .vscode/ipch
 tools/*.epub
 tools/*.rsvp
+tools/fonts/
 *.rsvp.tmp
 *.rsvp.failed
 *.rsvp.converting

@@ -9,6 +9,7 @@ RSVP Nano is an open-source ESP32-S3 reading device for showing text one word at
 - Chapter and paragraph-aware navigation.
 - SD card library under `/books`.
 - Local on-device EPUB conversion to cached `.rsvp` files.
+- Streaming book engine with sidecar `.idx` files: large books (100k+ words) load and read with bounded DRAM use.
 - USB mass-storage mode for copying books to the SD card.
 - Browser-based firmware installation with no IDE required.
 
@@ -43,6 +44,48 @@ If a conversion is interrupted, you may see sidecar files such as:
 .rsvp.converting
 .rsvp.failed
 ```
+
+The reader also creates a `<book>.rsvp.idx` sidecar next to each `.rsvp` (see
+[Streaming Book Engine](#streaming-book-engine) below). It is rebuilt
+automatically if missing or stale, so it is safe to delete.
+
+## Streaming Book Engine
+
+To support very large books (the original motivation was a 161k-word German
+novel that exhausted DRAM and reset the device), the firmware no longer keeps
+the full word list in RAM. Instead it uses a small sidecar index next to each
+`.rsvp` file:
+
+```text
+/books/MyBook.rsvp        original word stream
+/books/MyBook.rsvp.idx    binary word index (auto-generated)
+```
+
+How it works:
+
+- On first open of a `.rsvp`, the firmware streams the file once and writes
+  `MyBook.rsvp.idx`. This contains the cleaned word bytes plus offset and
+  length tables, chapter and paragraph markers, and a footer with a magic
+  number, version and the source file size.
+- Subsequent opens skip the build: the index is opened, its offset table is
+  loaded into PSRAM, and the `.rsvp` words are read from SD on demand with a
+  small in-memory LRU cache.
+- After an EPUB is converted on device, its `.idx` is built immediately so the
+  first read is instant.
+- The index is invalidated automatically when the source `.rsvp` size or the
+  index format version changes; the next load rebuilds it.
+
+Memory effect on a 161k-word book:
+
+- Before: every word lived as an Arduino `String` in DRAM, totalling tens of
+  MB and crashing the device.
+- After: ~640 KB offset table + ~320 KB length table in **PSRAM**, word bytes
+  stay on SD, only the current word plus a tiny cache live in DRAM. Total DRAM
+  use stays around 10 % regardless of book size.
+
+The index format lives in `src/storage/BookIndex.{h,cpp}`. Its converter tag
+(`idx-v1`) is bumped whenever the parser logic changes so old caches are
+invalidated.
 
 ## Build From Source
 
@@ -99,9 +142,36 @@ Supported input formats:
 - `.md` / `.markdown`
 - `.html` / `.htm` / `.xhtml`
 
+## Languages And Text Encoding
+
+The reader is UTF-8 throughout. Books in English plus Polish (full diacritics:
+`ą ć ę ł ń ó ś ź ż` and uppercase `Ą Ć Ę Ł Ń Ó Ś Ź Ż`) and other Western
+European languages with Latin-1 accented letters render with the embedded
+serif font.
+
+If you regenerate the embedded fonts, you only need Python 3 and Pillow
+(the TrueType file is downloaded automatically on first run):
+
+```sh
+python -m pip install Pillow
+python tools/generate_embedded_serif_font.py \
+    --output src/display/EmbeddedSerifFont.h
+python tools/generate_embedded_serif_font.py --point-size 35 \
+    --symbol-prefix EmbeddedSerif70 \
+    --output src/display/EmbeddedSerifFont70.h
+```
+
+The script caches Noto Sans Regular into `tools/fonts/`. Pass
+`--font-file path/to/font.ttf` to use a different TrueType file.
+
+The list of extra Unicode code points (Polish, Latin-1, common typographic
+punctuation) lives at the top of `tools/generate_embedded_serif_font.py`. Add
+to it to support more scripts.
+
 ## RSVP File Format
 
-`.rsvp` files are plain text. The reader understands a small set of directives:
+`.rsvp` files are plain UTF-8 text. The reader understands a small set of
+directives:
 
 ```text
 @rsvp 1

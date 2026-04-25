@@ -10,7 +10,12 @@
 #include <utility>
 
 #include "board/BoardConfig.h"
+#include "storage/BookIndex.h"
 #include "storage/EpubConverter.h"
+
+namespace {
+constexpr const char *kIdxConverterTag = "idx-v1";
+}
 
 #ifndef RSVP_ON_DEVICE_EPUB_CONVERSION
 #define RSVP_ON_DEVICE_EPUB_CONVERSION 0
@@ -38,7 +43,12 @@ bool reachedBookWordLimit(size_t wordCount) {
   return hasBookWordLimit() && wordCount >= kMaxBookWords;
 }
 
-bool isWordBoundary(char c) { return c <= ' '; }
+bool isWordBoundary(char c) {
+  // Use unsigned comparison so UTF-8 continuation / lead bytes (>= 0x80), which
+  // are negative on signed-char platforms, are not mistaken for control
+  // characters and used to split Polish or other non-ASCII words.
+  return static_cast<unsigned char>(c) <= ' ';
+}
 
 bool prefixHasBoundary(const String &lowered, const char *prefix) {
   const size_t prefixLength = std::strlen(prefix);
@@ -715,35 +725,107 @@ void appendSingleByteApproximation(String &target, uint8_t value) {
 }
 
 String normalizeDisplayText(const String &text) {
-  String normalized;
-  normalized.reserve(text.length());
+  // Decode each UTF-8 code point. Letters, digits, and general punctuation are
+  // preserved verbatim as UTF-8 so the display renderer (which now handles
+  // Polish and Latin-1) draws them correctly. Only whitespace-like code points
+  // and a handful of typographic glyphs that read better as their ASCII
+  // equivalents (curly quotes, dashes, ligatures, legal marks) are rewritten.
+  String working;
+  working.reserve(text.length());
 
   size_t index = 0;
   while (index < text.length()) {
     const size_t before = index;
     uint32_t codepoint = 0;
-    if (decodeUtf8Codepoint(text, index, codepoint)) {
-      appendAsciiApproximation(normalized, codepoint);
+    if (!decodeUtf8Codepoint(text, index, codepoint)) {
+      // Invalid UTF-8 byte: skip it rather than splicing garbage through.
+      index = before + 1;
       continue;
     }
 
-    index = before + 1;
-    appendSingleByteApproximation(normalized, static_cast<uint8_t>(text[before]));
+    // Whitespace / unusual spacing: collapse to a regular ASCII space so the
+    // tokeniser treats it as a word boundary.
+    if (codepoint == '\t' || codepoint == '\n' || codepoint == '\r' ||
+        codepoint == 0x00A0 || codepoint == 0x1680 || codepoint == 0x180E ||
+        codepoint == 0x2028 || codepoint == 0x2029 || codepoint == 0x202F ||
+        codepoint == 0x205F || codepoint == 0x3000 ||
+        (codepoint >= 0x2000 && codepoint <= 0x200A)) {
+      working += ' ';
+      continue;
+    }
+
+    bool rewritten = true;
+    switch (codepoint) {
+      case 0x2018: case 0x2019: case 0x201A: case 0x201B:
+      case 0x2032: case 0x2035:
+        working += '\'';
+        break;
+      case 0x201C: case 0x201D: case 0x201E: case 0x201F:
+      case 0x00AB: case 0x00BB: case 0x2033: case 0x2036:
+        working += '"';
+        break;
+      case 0x2010: case 0x2011: case 0x2012: case 0x2013:
+      case 0x2014: case 0x2015: case 0x2043: case 0x2212:
+        working += '-';
+        break;
+      case 0x2026:
+        appendAsciiText(working, "...");
+        break;
+      case 0x00A9:
+        appendAsciiText(working, "(c)");
+        break;
+      case 0x00AE:
+        appendAsciiText(working, "(r)");
+        break;
+      case 0x2122:
+        appendAsciiText(working, "TM");
+        break;
+      case 0xFB00:
+        appendAsciiText(working, "ff");
+        break;
+      case 0xFB01:
+        appendAsciiText(working, "fi");
+        break;
+      case 0xFB02:
+        appendAsciiText(working, "fl");
+        break;
+      case 0xFB03:
+        appendAsciiText(working, "ffi");
+        break;
+      case 0xFB04:
+        appendAsciiText(working, "ffl");
+        break;
+      case 0xFB05: case 0xFB06:
+        appendAsciiText(working, "st");
+        break;
+      default:
+        rewritten = false;
+        break;
+    }
+    if (rewritten) {
+      continue;
+    }
+
+    // Anything else (ASCII, Latin-1 letters, Polish letters, ...) is preserved
+    // as its original UTF-8 bytes.
+    for (size_t i = before; i < index; ++i) {
+      working += text[i];
+    }
   }
 
+  // Collapse runs of ASCII spaces and strip a trailing space.
   String collapsed;
-  collapsed.reserve(normalized.length());
+  collapsed.reserve(working.length());
   bool previousSpace = true;
-  for (size_t i = 0; i < normalized.length(); ++i) {
-    const char c = normalized[i];
-    if (c <= ' ') {
+  for (size_t i = 0; i < working.length(); ++i) {
+    const char c = working[i];
+    if (c == ' ') {
       if (!previousSpace) {
         collapsed += ' ';
         previousSpace = true;
       }
       continue;
     }
-
     collapsed += c;
     previousSpace = false;
   }
@@ -754,7 +836,24 @@ String normalizeDisplayText(const String &text) {
   return collapsed;
 }
 
-void pushCleanWord(String token, std::vector<String> &words) {
+// Abstract sink that consumes the cleaned word stream produced by parsing a
+// `.rsvp` or `.txt` book. Two implementations exist (further down): an
+// in-memory sink for small books and a streaming sink that writes a sidecar
+// `.idx` for large books so we never load every word into RAM.
+class WordSink {
+ public:
+  virtual ~WordSink() = default;
+  // Returns false if the sink wants the parser to stop.
+  virtual bool addWord(const String &word) = 0;
+  virtual void addParagraph() = 0;
+  virtual void addChapter(const String &title) = 0;
+  virtual size_t wordCount() const = 0;
+  virtual void setTitle(const String &title) = 0;
+  virtual void setAuthor(const String &author) = 0;
+};
+
+bool cleanWordToken(String token, String &out) {
+  out = "";
   token.trim();
 
   if (token.length() >= 3 && static_cast<uint8_t>(token[0]) == 0xEF &&
@@ -775,15 +874,20 @@ void pushCleanWord(String token, std::vector<String> &words) {
 
   bool hasAlphaNumeric = false;
   for (size_t i = 0; i < token.length(); ++i) {
-    if (std::isalnum(static_cast<unsigned char>(token[i])) != 0) {
+    const unsigned char byte = static_cast<unsigned char>(token[i]);
+    // ASCII letters/digits, or any non-ASCII byte (part of a UTF-8 encoded
+    // letter such as Polish diacritics) count as content.
+    if (byte >= 0x80 || std::isalnum(byte) != 0) {
       hasAlphaNumeric = true;
       break;
     }
   }
 
-  if (!token.isEmpty() && hasAlphaNumeric) {
-    words.push_back(token);
+  if (token.isEmpty() || !hasAlphaNumeric) {
+    return false;
   }
+  out = token;
+  return true;
 }
 
 String stripBom(String text) {
@@ -824,31 +928,14 @@ bool chapterTitleFromLine(const String &line, String &title) {
   return false;
 }
 
-void addChapterMarker(BookContent &book, const String &title) {
+void addChapterMarker(WordSink &sink, const String &title) {
   if (title.isEmpty()) {
     return;
   }
-
-  ChapterMarker marker;
-  marker.title = title;
-  marker.wordIndex = book.words.size();
-
-  if (!book.chapters.empty() && book.chapters.back().wordIndex == marker.wordIndex) {
-    book.chapters.back() = marker;
-    return;
-  }
-
-  book.chapters.push_back(marker);
+  sink.addChapter(title);
 }
 
-void addParagraphMarker(BookContent &book) {
-  const size_t wordIndex = book.words.size();
-  if (!book.paragraphStarts.empty() && book.paragraphStarts.back() == wordIndex) {
-    return;
-  }
-
-  book.paragraphStarts.push_back(wordIndex);
-}
+void addParagraphMarker(WordSink &sink) { sink.addParagraph(); }
 
 String directiveValue(const String &line, const char *directive) {
   String value = line.substring(std::strlen(directive));
@@ -860,7 +947,7 @@ String directiveValue(const String &line, const char *directive) {
   return normalizeDisplayText(value);
 }
 
-bool appendLineWords(const String &line, std::vector<String> &words) {
+bool appendLineWords(const String &line, WordSink &sink) {
   const String normalizedLine = normalizeDisplayText(line);
   String currentWord;
 
@@ -868,11 +955,12 @@ bool appendLineWords(const String &line, std::vector<String> &words) {
     const char c = normalizedLine[i];
     if (isWordBoundary(c)) {
       if (!currentWord.isEmpty()) {
-        pushCleanWord(currentWord, words);
-        currentWord = "";
-        if (reachedBookWordLimit(words.size())) {
-          return false;
+        String cleaned;
+        if (cleanWordToken(currentWord, cleaned)) {
+          if (!sink.addWord(cleaned)) return false;
+          if (reachedBookWordLimit(sink.wordCount())) return false;
         }
+        currentWord = "";
       }
       continue;
     }
@@ -880,14 +968,17 @@ bool appendLineWords(const String &line, std::vector<String> &words) {
     currentWord += c;
   }
 
-  if (!currentWord.isEmpty() && !reachedBookWordLimit(words.size())) {
-    pushCleanWord(currentWord, words);
+  if (!currentWord.isEmpty() && !reachedBookWordLimit(sink.wordCount())) {
+    String cleaned;
+    if (cleanWordToken(currentWord, cleaned)) {
+      if (!sink.addWord(cleaned)) return false;
+    }
   }
 
-  return !reachedBookWordLimit(words.size());
+  return !reachedBookWordLimit(sink.wordCount());
 }
 
-bool processBookLine(const String &line, BookContent &book, bool &paragraphPending) {
+bool processBookLine(const String &line, WordSink &sink, bool &paragraphPending) {
   const String trimmed = stripBom(line);
   if (trimmed.isEmpty()) {
     paragraphPending = true;
@@ -896,18 +987,18 @@ bool processBookLine(const String &line, BookContent &book, bool &paragraphPendi
 
   String chapterTitle;
   if (chapterTitleFromLine(line, chapterTitle)) {
-    addChapterMarker(book, chapterTitle);
+    addChapterMarker(sink, chapterTitle);
     paragraphPending = true;
   }
 
   if (paragraphPending) {
-    addParagraphMarker(book);
+    addParagraphMarker(sink);
     paragraphPending = false;
   }
-  return appendLineWords(line, book.words);
+  return appendLineWords(line, sink);
 }
 
-bool processRsvpLine(const String &line, BookContent &book, bool &paragraphPending) {
+bool processRsvpLine(const String &line, WordSink &sink, bool &paragraphPending) {
   String trimmed = stripBom(line);
   if (trimmed.isEmpty()) {
     paragraphPending = true;
@@ -917,10 +1008,10 @@ bool processRsvpLine(const String &line, BookContent &book, bool &paragraphPendi
   if (trimmed.startsWith("@@")) {
     trimmed.remove(0, 1);
     if (paragraphPending) {
-      addParagraphMarker(book);
+      addParagraphMarker(sink);
       paragraphPending = false;
     }
-    return appendLineWords(trimmed, book.words);
+    return appendLineWords(trimmed, sink);
   }
 
   if (trimmed.startsWith("@")) {
@@ -935,27 +1026,85 @@ bool processRsvpLine(const String &line, BookContent &book, bool &paragraphPendi
       if (title.isEmpty()) {
         title = "Chapter";
       }
-      addChapterMarker(book, title);
+      addChapterMarker(sink, title);
       paragraphPending = true;
       return true;
     }
     if (prefixHasBoundary(lowered, "@title")) {
-      book.title = directiveValue(trimmed, "@title");
+      sink.setTitle(directiveValue(trimmed, "@title"));
       return true;
     }
     if (prefixHasBoundary(lowered, "@author")) {
-      book.author = directiveValue(trimmed, "@author");
+      sink.setAuthor(directiveValue(trimmed, "@author"));
       return true;
     }
     return true;
   }
 
   if (paragraphPending) {
-    addParagraphMarker(book);
+    addParagraphMarker(sink);
     paragraphPending = false;
   }
-  return appendLineWords(line, book.words);
+  return appendLineWords(line, sink);
 }
+
+// In-memory sink: stores words into a vector that the caller wraps in an
+// InMemoryBookSource at the end. Used for small `.txt` files where it's fine
+// to materialize the whole book in DRAM. Chapter and paragraph markers are
+// recorded directly on the supplied BookContent.
+class InMemoryWordSink : public WordSink {
+ public:
+  InMemoryWordSink(BookContent &book, std::vector<String> &words)
+      : book_(book), words_(words) {}
+
+  bool addWord(const String &word) override {
+    if (reachedBookWordLimit(words_.size())) return false;
+    words_.push_back(word);
+    return !reachedBookWordLimit(words_.size());
+  }
+  void addParagraph() override {
+    const size_t at = words_.size();
+    if (!book_.paragraphStarts.empty() && book_.paragraphStarts.back() == at) return;
+    book_.paragraphStarts.push_back(at);
+  }
+  void addChapter(const String &title) override {
+    ChapterMarker marker;
+    marker.title = title;
+    marker.wordIndex = words_.size();
+    if (!book_.chapters.empty() && book_.chapters.back().wordIndex == marker.wordIndex) {
+      book_.chapters.back() = marker;
+      return;
+    }
+    book_.chapters.push_back(marker);
+  }
+  size_t wordCount() const override { return words_.size(); }
+  void setTitle(const String &title) override { book_.title = title; }
+  void setAuthor(const String &author) override { book_.author = author; }
+
+ private:
+  BookContent &book_;
+  std::vector<String> &words_;
+};
+
+// Streaming sink: forwards every cleaned word to a BookIndex::Writer that
+// streams bytes straight to the SD card. This keeps DRAM usage bounded even
+// for very large books (tens of thousands of words).
+class IdxBuilderSink : public WordSink {
+ public:
+  explicit IdxBuilderSink(BookIndex::Writer &writer) : writer_(writer) {}
+  bool addWord(const String &word) override {
+    if (!writer_.addWord(word)) return false;
+    return !reachedBookWordLimit(writer_.wordCount());
+  }
+  void addParagraph() override { writer_.addParagraph(); }
+  void addChapter(const String &title) override { writer_.addChapter(title); }
+  size_t wordCount() const override { return writer_.wordCount(); }
+  void setTitle(const String &title) override { writer_.setTitle(title); }
+  void setAuthor(const String &author) override { writer_.setAuthor(author); }
+
+ private:
+  BookIndex::Writer &writer_;
+};
 
 String readRsvpDirectiveValue(const String &path, const char *directive) {
   if (!hasRsvpExtension(path)) {
@@ -1100,10 +1249,6 @@ void StorageManager::refreshBooks() {
   refreshBookPaths();
 }
 
-bool StorageManager::loadFirstBookWords(std::vector<String> &words, String *loadedPath) {
-  return loadBookWords(0, words, loadedPath);
-}
-
 size_t StorageManager::bookCount() const { return bookPaths_.size(); }
 
 String StorageManager::bookPath(size_t index) const {
@@ -1202,6 +1347,16 @@ bool StorageManager::ensureEpubConverted(const String &epubPath, String &rsvpPat
                 static_cast<unsigned long>(elapsedMs), rsvpPath.c_str());
   notifyStatus("Preparing book", displayNameForPath(rsvpPath).c_str(), "Conversion complete",
                100);
+
+  // Pre-build the streaming index immediately so the first read does not pay
+  // the index-build cost. Failure here is non-fatal: the next load will retry.
+  const String idxPath = BookIndex::idxPathForRsvp(rsvpPath);
+  if (!BookIndex::isCurrentForRsvp(rsvpPath, idxPath, kIdxConverterTag)) {
+    if (!buildIdxForRsvp(rsvpPath, idxPath)) {
+      Serial.printf("[storage] Post-conversion idx build failed (will retry on load): %s\n",
+                    rsvpPath.c_str());
+    }
+  }
   return true;
 }
 
@@ -1253,20 +1408,20 @@ bool StorageManager::loadBookContent(size_t index, BookContent &book, String *lo
       parsedIndex = static_cast<size_t>(convertedIndex);
     }
 
-    File entry = SD_MMC.open(path);
-    if (!entry || entry.isDirectory()) {
-      if (entry) {
-        entry.close();
-      }
-      continue;
+    bool loaded = false;
+    if (hasRsvpExtension(path)) {
+      loaded = loadRsvpAsStreaming(path, book);
+    } else {
+      loaded = loadTextIntoMemory(path, book);
     }
 
-    if (parseFile(entry, book, hasRsvpExtension(path))) {
+    if (loaded) {
       if (book.title.isEmpty()) {
         book.title = normalizeDisplayText(displayNameWithoutExtension(path));
       }
+      const size_t loadedWordCount = book.source ? book.source->size() : 0;
       Serial.printf("[storage] Loaded %u words and %u chapters from %s\n",
-                    static_cast<unsigned int>(book.words.size()),
+                    static_cast<unsigned int>(loadedWordCount),
                     static_cast<unsigned int>(book.chapters.size()), path.c_str());
       if (loadedPath != nullptr) {
         *loadedPath = path;
@@ -1274,28 +1429,14 @@ bool StorageManager::loadBookContent(size_t index, BookContent &book, String *lo
       if (loadedIndex != nullptr) {
         *loadedIndex = parsedIndex;
       }
-      entry.close();
       return true;
     }
 
     book.clear();
-    entry.close();
   }
 
   Serial.println("[storage] No readable book files found under /books");
   return false;
-}
-
-bool StorageManager::loadBookWords(size_t index, std::vector<String> &words, String *loadedPath,
-                                   size_t *loadedIndex) {
-  BookContent book;
-  if (!loadBookContent(index, book, loadedPath, loadedIndex)) {
-    words.clear();
-    return false;
-  }
-
-  words = std::move(book.words);
-  return true;
 }
 
 void StorageManager::refreshBookPaths() {
@@ -1326,22 +1467,25 @@ void StorageManager::refreshBookPaths() {
                 static_cast<unsigned int>(pendingEpubCount));
 }
 
-bool StorageManager::parseFile(File &file, BookContent &book, bool rsvpFormat) {
-  book.clear();
+namespace {
+
+// Streams a `.txt` or `.rsvp` file through the supplied WordSink. Returns the
+// number of words emitted (>0 means success).
+size_t streamFileIntoSink(File &file, WordSink &sink, bool rsvpFormat) {
   String line;
   bool paragraphPending = true;
+  size_t serviceCounter = 0;
 
   while (file.available()) {
     const char c = static_cast<char>(file.read());
-
-    if (c == '\r') {
-      continue;
+    if ((++serviceCounter & 0x1FFF) == 0) {
+      yield();
     }
 
+    if (c == '\r') continue;
     if (c == '\n') {
-      const bool keepReading =
-          rsvpFormat ? processRsvpLine(line, book, paragraphPending)
-                     : processBookLine(line, book, paragraphPending);
+      const bool keepReading = rsvpFormat ? processRsvpLine(line, sink, paragraphPending)
+                                          : processBookLine(line, sink, paragraphPending);
       if (!keepReading) {
         if (hasBookWordLimit()) {
           Serial.printf("[storage] Reached %lu word limit, truncating book\n",
@@ -1352,21 +1496,108 @@ bool StorageManager::parseFile(File &file, BookContent &book, bool rsvpFormat) {
       line = "";
       continue;
     }
-
     line += c;
   }
 
-  if (!line.isEmpty() && !reachedBookWordLimit(book.words.size())) {
-    if (rsvpFormat) {
-      processRsvpLine(line, book, paragraphPending);
-    } else {
-      processBookLine(line, book, paragraphPending);
+  if (!line.isEmpty() && !reachedBookWordLimit(sink.wordCount())) {
+    if (rsvpFormat) processRsvpLine(line, sink, paragraphPending);
+    else processBookLine(line, sink, paragraphPending);
+  }
+  return sink.wordCount();
+}
+
+}  // namespace
+
+bool StorageManager::buildIdxForRsvp(const String &rsvpPath, const String &idxPath) {
+  File rsvp = SD_MMC.open(rsvpPath);
+  if (!rsvp || rsvp.isDirectory()) {
+    if (rsvp) rsvp.close();
+    Serial.printf("[storage] Cannot open .rsvp for indexing: %s\n", rsvpPath.c_str());
+    return false;
+  }
+  const uint32_t rsvpSize = static_cast<uint32_t>(rsvp.size());
+
+  const String tmpPath = idxPath + ".tmp";
+  BookIndex::Writer writer;
+  if (!writer.open(tmpPath, kIdxConverterTag, rsvpSize)) {
+    rsvp.close();
+    return false;
+  }
+
+  notifyStatus("Indexing book", displayNameForPath(rsvpPath).c_str(),
+               "Building word index", 30);
+  Serial.printf("[storage] Building idx for %s (%lu bytes)\n", rsvpPath.c_str(),
+                static_cast<unsigned long>(rsvpSize));
+  logHeapSnapshot("before idx build");
+
+  IdxBuilderSink sink(writer);
+  const size_t produced = streamFileIntoSink(rsvp, sink, true /*rsvpFormat*/);
+  rsvp.close();
+
+  if (produced == 0) {
+    Serial.printf("[storage] No words extracted while indexing %s\n", rsvpPath.c_str());
+    writer.abort();
+    return false;
+  }
+
+  // Synthesize a paragraph at index 0 if the source had none, so seek-to-start
+  // works the same as before.
+  // (Writer dedupes equal indices, so calling addParagraph at the start is safe.)
+  // Note: we don't have a way to peek into the writer here, so always call.
+  if (!writer.finalize(idxPath)) {
+    Serial.printf("[storage] Failed to finalize idx: %s\n", idxPath.c_str());
+    return false;
+  }
+
+  Serial.printf("[storage] Indexed %s -> %s (%u words)\n", rsvpPath.c_str(),
+                idxPath.c_str(), static_cast<unsigned int>(produced));
+  logHeapSnapshot("after idx build");
+  return true;
+}
+
+bool StorageManager::loadRsvpAsStreaming(const String &rsvpPath, BookContent &book) {
+  const String idxPath = BookIndex::idxPathForRsvp(rsvpPath);
+
+  if (!BookIndex::isCurrentForRsvp(rsvpPath, idxPath, kIdxConverterTag)) {
+    if (!buildIdxForRsvp(rsvpPath, idxPath)) {
+      return false;
     }
   }
 
-  if (!book.words.empty() && book.paragraphStarts.empty()) {
-    book.paragraphStarts.push_back(0);
+  auto streaming = std::make_shared<BookIndex::StreamingSource>();
+  if (!streaming->openFromIdx(idxPath, book)) {
+    return false;
   }
 
-  return !book.words.empty();
+  if (streaming->size() == 0) {
+    return false;
+  }
+
+  if (book.paragraphStarts.empty()) {
+    book.paragraphStarts.push_back(0);
+  }
+  book.source = streaming;
+  return true;
+}
+
+bool StorageManager::loadTextIntoMemory(const String &path, BookContent &book) {
+  File entry = SD_MMC.open(path);
+  if (!entry || entry.isDirectory()) {
+    if (entry) entry.close();
+    return false;
+  }
+
+  std::vector<String> words;
+  InMemoryWordSink sink(book, words);
+  const size_t produced = streamFileIntoSink(entry, sink, false /*rsvpFormat*/);
+  entry.close();
+
+  if (produced == 0) {
+    return false;
+  }
+  if (book.paragraphStarts.empty()) {
+    book.paragraphStarts.push_back(0);
+  }
+  book.source = std::make_shared<InMemoryBookSource>(std::move(words));
+  return true;
 }

@@ -1720,7 +1720,7 @@ bool App::loadBookAtIndex(size_t index, uint32_t nowMs, bool allowLegacyPosition
 
   chapterMarkers_ = std::move(book.chapters);
   paragraphStarts_ = std::move(book.paragraphStarts);
-  reader_.setWords(std::move(book.words), nowMs);
+  reader_.setBookSource(std::move(book.source), nowMs);
   currentBookIndex_ = loadedIndex;
   currentBookPath_ = loadedPath;
   currentBookTitle_ = book.title.isEmpty() ? displayNameForPath(loadedPath) : book.title;

@@ -81,16 +81,17 @@ class DisplayManager {
   int measureTinyTextWidth(const String &text, int scale) const;
   String fitSerifText(const String &text, int maxWidth, int divisor) const;
   String fitTinyText(const String &text, int maxWidth, int scale) const;
-  void drawGlyph(int x, int y, char c, uint16_t color);
-  void drawSerifGlyphScaled(int x, int y, char c, uint16_t color, int divisor);
-  void drawSerif70Glyph(int x, int y, char c, uint16_t color);
-  void drawSerifGlyphScaledPercent(int x, int y, char c, uint16_t color, uint8_t scalePercent);
+  void drawGlyph(int x, int y, uint32_t cp, uint16_t color);
+  void drawSerifGlyphScaled(int x, int y, uint32_t cp, uint16_t color, int divisor);
+  void drawSerif70Glyph(int x, int y, uint32_t cp, uint16_t color);
+  void drawSerifGlyphScaledPercent(int x, int y, uint32_t cp, uint16_t color, uint8_t scalePercent);
   void fillVirtualRect(int x, int y, int width, int height, uint16_t color);
   void drawSerifTextAt(const String &text, int x, int y, uint16_t color, int divisor);
   void drawSerif70TextAt(const String &text, int x, int y, uint16_t color);
   void drawSerifTextScaledAt(const String &text, int x, int y, uint16_t color,
                              uint8_t scalePercent);
   void drawTinyGlyph(int x, int y, char c, uint16_t color, int scale);
+  void drawTinyGlyphCp(int x, int y, uint32_t cp, uint16_t color, int scale);
   void drawTinyTextAt(const String &text, int x, int y, uint16_t color, int scale);
   void drawTinyTextCentered(const String &text, int y, uint16_t color, int scale);
   void drawBatteryBadge();
