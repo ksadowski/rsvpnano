@@ -63,6 +63,7 @@ class App {
   void cycleThemeMode(uint32_t nowMs);
   void togglePhantomWords(uint32_t nowMs);
   void cycleReaderFontSize(uint32_t nowMs);
+  void cycleReaderFontFamily(uint32_t nowMs);
   void applyDisplayPreferences(uint32_t nowMs, bool rerender = true);
   void applyTypographySettings(uint32_t nowMs, bool rerender = true);
   uint8_t currentBrightnessPercent() const;
@@ -85,6 +86,7 @@ class App {
   String themeModeLabel() const;
   String phantomWordsLabel() const;
   String readerFontSizeLabel() const;
+  String readerFontFamilyLabel() const;
   String typographyTuningLabel() const;
   String typographyTuningValueLabel() const;
   void openBookPicker();
@@ -169,6 +171,7 @@ class App {
   size_t restartConfirmSelectedIndex_ = 0;
   uint8_t brightnessLevelIndex_ = 4;
   uint8_t readerFontSizeIndex_ = 0;
+  uint8_t readerFontFamilyIndex_ = 0;  // 0 = Sans, 1 = Serif
   uint8_t pacingLongWordLevelIndex_ = 2;
   uint8_t pacingComplexWordLevelIndex_ = 2;
   uint8_t pacingPunctuationLevelIndex_ = 2;

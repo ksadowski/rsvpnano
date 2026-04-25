@@ -114,7 +114,8 @@ constexpr size_t kSettingsDisplayThemeIndex = 1;
 constexpr size_t kSettingsDisplayBrightnessIndex = 2;
 constexpr size_t kSettingsDisplayPhantomWordsIndex = 3;
 constexpr size_t kSettingsDisplayFontSizeIndex = 4;
-constexpr size_t kSettingsDisplayTypographyIndex = 5;
+constexpr size_t kSettingsDisplayFontFamilyIndex = 5;
+constexpr size_t kSettingsDisplayTypographyIndex = 6;
 constexpr size_t kSettingsPacingLongWordsIndex = 1;
 constexpr size_t kSettingsPacingComplexityIndex = 2;
 constexpr size_t kSettingsPacingPunctuationIndex = 3;
@@ -132,6 +133,7 @@ constexpr const char *kPrefDarkMode = "dark";
 constexpr const char *kPrefNightMode = "night";
 constexpr const char *kPrefPhantomWords = "phantom_on";
 constexpr const char *kPrefReaderFontSize = "font_size";
+constexpr const char *kPrefReaderFontFamily = "font_fam";
 constexpr const char *kPrefPacingLong = "pace_len";
 constexpr const char *kPrefPacingComplex = "pace_cpx";
 constexpr const char *kPrefPacingPunctuation = "pace_pnc";
@@ -143,6 +145,9 @@ constexpr const char *kPrefRecentSeq = "seq";
 constexpr const char *kReaderFontSizeLabels[] = {"Large", "Medium", "Small"};
 constexpr size_t kReaderFontSizeCount =
     sizeof(kReaderFontSizeLabels) / sizeof(kReaderFontSizeLabels[0]);
+constexpr const char *kReaderFontFamilyLabels[] = {"Sans", "Serif"};
+constexpr size_t kReaderFontFamilyCount =
+    sizeof(kReaderFontFamilyLabels) / sizeof(kReaderFontFamilyLabels[0]);
 constexpr size_t kPhantomBeforeCharTargets[] = {64, 96, 144};
 constexpr size_t kPhantomAfterCharTargets[] = {96, 144, 208};
 constexpr uint32_t kNoSavedWordIndex = 0xFFFFFFFFUL;
@@ -241,6 +246,11 @@ void App::begin() {
   readerFontSizeIndex_ = preferences_.getUChar(kPrefReaderFontSize, readerFontSizeIndex_);
   if (readerFontSizeIndex_ >= kReaderFontSizeCount) {
     readerFontSizeIndex_ = 0;
+  }
+  readerFontFamilyIndex_ =
+      preferences_.getUChar(kPrefReaderFontFamily, readerFontFamilyIndex_);
+  if (readerFontFamilyIndex_ >= kReaderFontFamilyCount) {
+    readerFontFamilyIndex_ = 0;
   }
   pacingLongWordLevelIndex_ =
       preferences_.getUChar(kPrefPacingLong, pacingLongWordLevelIndex_);
@@ -601,6 +611,8 @@ void App::applyDisplayPreferences(uint32_t nowMs, bool rerender) {
   display_.setDarkMode(darkMode_);
   display_.setNightMode(nightMode_);
   display_.setBrightnessPercent(currentBrightnessPercent());
+  display_.setFontFamily(readerFontFamilyIndex_ == 1 ? DisplayManager::FontFamily::Serif
+                                                     : DisplayManager::FontFamily::Sans);
 
   if (!rerender) {
     return;
@@ -701,6 +713,14 @@ void App::cycleReaderFontSize(uint32_t nowMs) {
   readerFontSizeIndex_ = static_cast<uint8_t>((readerFontSizeIndex_ + 1) % kReaderFontSizeCount);
   preferences_.putUChar(kPrefReaderFontSize, readerFontSizeIndex_);
   Serial.printf("[display] font size=%s\n", readerFontSizeLabel().c_str());
+  applyDisplayPreferences(nowMs);
+}
+
+void App::cycleReaderFontFamily(uint32_t nowMs) {
+  readerFontFamilyIndex_ =
+      static_cast<uint8_t>((readerFontFamilyIndex_ + 1) % kReaderFontFamilyCount);
+  preferences_.putUChar(kPrefReaderFontFamily, readerFontFamilyIndex_);
+  Serial.printf("[display] font family=%s\n", readerFontFamilyLabel().c_str());
   applyDisplayPreferences(nowMs);
 }
 
@@ -1123,6 +1143,9 @@ void App::selectSettingsItem(uint32_t nowMs) {
       case kSettingsDisplayFontSizeIndex:
         cycleReaderFontSize(nowMs);
         return;
+      case kSettingsDisplayFontFamilyIndex:
+        cycleReaderFontFamily(nowMs);
+        return;
       case kSettingsDisplayTypographyIndex:
         openTypographyTuning();
         return;
@@ -1260,6 +1283,7 @@ void App::rebuildSettingsMenuItems() {
     settingsMenuItems_.push_back("Brightness: " + String(currentBrightnessPercent()) + "%");
     settingsMenuItems_.push_back("Phantom words: " + phantomWordsLabel());
     settingsMenuItems_.push_back("Font size: " + readerFontSizeLabel());
+    settingsMenuItems_.push_back("Font: " + readerFontFamilyLabel());
     settingsMenuItems_.push_back("Typography tune");
   } else if (menuScreen_ == MenuScreen::SettingsPacing) {
     settingsMenuItems_.push_back("Back");
@@ -1309,6 +1333,14 @@ String App::readerFontSizeLabel() const {
     levelIndex = 0;
   }
   return kReaderFontSizeLabels[levelIndex];
+}
+
+String App::readerFontFamilyLabel() const {
+  uint8_t levelIndex = readerFontFamilyIndex_;
+  if (levelIndex >= kReaderFontFamilyCount) {
+    levelIndex = 0;
+  }
+  return kReaderFontFamilyLabels[levelIndex];
 }
 
 String App::typographyTuningLabel() const {

@@ -5,6 +5,8 @@
 
 class DisplayManager {
  public:
+  enum class FontFamily : uint8_t { Sans = 0, Serif = 1 };
+
   struct TypographyConfig {
     int8_t trackingPx = 0;
     uint8_t anchorPercent = 35;
@@ -32,6 +34,8 @@ class DisplayManager {
   void setNightMode(bool nightMode);
   void setTypographyConfig(const TypographyConfig &config);
   TypographyConfig typographyConfig() const;
+  void setFontFamily(FontFamily family);
+  FontFamily fontFamily() const;
   bool darkMode() const;
   bool nightMode() const;
   void prepareForSleep();
@@ -75,21 +79,21 @@ class DisplayManager {
   uint16_t blendOverBackground(uint16_t rgb565, uint8_t alpha) const;
   int chooseTextScale(const String &word) const;
   int measureTextWidth(const String &word) const;
-  int measureSerifTextWidth(const String &text, int divisor) const;
-  int measureSerif70TextWidth(const String &text) const;
-  int measureSerifTextWidthScaled(const String &text, uint8_t scalePercent) const;
+  int measureReaderTextWidth(const String &text, int divisor) const;
+  int measureReader70TextWidth(const String &text) const;
+  int measureReaderTextWidthScaled(const String &text, uint8_t scalePercent) const;
   int measureTinyTextWidth(const String &text, int scale) const;
-  String fitSerifText(const String &text, int maxWidth, int divisor) const;
+  String fitReaderText(const String &text, int maxWidth, int divisor) const;
   String fitTinyText(const String &text, int maxWidth, int scale) const;
   void drawGlyph(int x, int y, uint32_t cp, uint16_t color);
-  void drawSerifGlyphScaled(int x, int y, uint32_t cp, uint16_t color, int divisor);
-  void drawSerif70Glyph(int x, int y, uint32_t cp, uint16_t color);
-  void drawSerifGlyphScaledPercent(int x, int y, uint32_t cp, uint16_t color, uint8_t scalePercent);
+  void drawReaderGlyphScaled(int x, int y, uint32_t cp, uint16_t color, int divisor);
+  void drawReader70Glyph(int x, int y, uint32_t cp, uint16_t color);
+  void drawReaderGlyphScaledPercent(int x, int y, uint32_t cp, uint16_t color, uint8_t scalePercent);
   void fillVirtualRect(int x, int y, int width, int height, uint16_t color);
-  void drawSerifTextAt(const String &text, int x, int y, uint16_t color, int divisor);
-  void drawSerif70TextAt(const String &text, int x, int y, uint16_t color);
-  void drawSerifTextScaledAt(const String &text, int x, int y, uint16_t color,
-                             uint8_t scalePercent);
+  void drawReaderTextAt(const String &text, int x, int y, uint16_t color, int divisor);
+  void drawReader70TextAt(const String &text, int x, int y, uint16_t color);
+  void drawReaderTextScaledAt(const String &text, int x, int y, uint16_t color,
+                              uint8_t scalePercent);
   void drawTinyGlyph(int x, int y, char c, uint16_t color, int scale);
   void drawTinyGlyphCp(int x, int y, uint32_t cp, uint16_t color, int scale);
   void drawTinyTextAt(const String &text, int x, int y, uint16_t color, int scale);

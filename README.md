@@ -149,14 +149,38 @@ The reader is UTF-8 throughout. Books in English plus Polish (full diacritics:
 European languages with Latin-1 accented letters render with the embedded
 serif font.
 
+The reader ships with two interchangeable font families:
+
+- **Sans** (Noto Sans) – the default.
+- **Serif** (Noto Serif) – classic book look, optional.
+
+Switch between them at runtime in **Settings → Display → Font**. The choice is
+persisted across reboots and applies to both reader words and menu text.
+
 If you regenerate the embedded fonts, you only need Python 3 and Pillow
-(the TrueType file is downloaded automatically on first run):
+(the TrueType files are downloaded automatically on first run for Sans, and
+manually for Serif):
 
 ```sh
 python -m pip install Pillow
+
+# Sans family (Noto Sans, downloaded automatically on first run):
 python tools/generate_embedded_serif_font.py \
+    --font-file tools/fonts/NotoSans-Regular.ttf --font-name NotoSans \
+    --symbol-prefix EmbeddedSans \
+    --output src/display/EmbeddedSansFont.h
+python tools/generate_embedded_serif_font.py --point-size 35 \
+    --font-file tools/fonts/NotoSans-Regular.ttf --font-name NotoSans \
+    --symbol-prefix EmbeddedSans70 \
+    --output src/display/EmbeddedSansFont70.h
+
+# Serif family (place NotoSerif-Regular.ttf in tools/fonts/ first):
+python tools/generate_embedded_serif_font.py \
+    --font-file tools/fonts/NotoSerif-Regular.ttf --font-name NotoSerif \
+    --symbol-prefix EmbeddedSerif \
     --output src/display/EmbeddedSerifFont.h
 python tools/generate_embedded_serif_font.py --point-size 35 \
+    --font-file tools/fonts/NotoSerif-Regular.ttf --font-name NotoSerif \
     --symbol-prefix EmbeddedSerif70 \
     --output src/display/EmbeddedSerifFont70.h
 ```
