@@ -74,8 +74,10 @@ class App {
   // once the press passes `kAutoplayLatchHoldMs`. Called from update() so the
   // latch fires on time even if the touch driver isn't emitting move events.
   void maybeLatchAutoplay(uint32_t nowMs);
-  // Pushes the green/cyan touch indicator dot state down to DisplayManager.
-  void updateTouchIndicator();
+  // Pushes the top-left touch dot and top-center playback indicator state
+  // down to DisplayManager and re-renders the current screen if either
+  // changed so they appear/disappear immediately.
+  void updateIndicators(uint32_t nowMs);
   int scrubStepsForDrag(int deltaX) const;
   void applyScrubTarget(int targetSteps);
   void applyMenuTouchGesture(const TouchEvent &event, uint32_t nowMs);
@@ -204,8 +206,9 @@ class App {
   // True between Start and End events, used to drive the touch indicator dot
   // independent of state machine details (works in Playing and Paused alike).
   bool touchSampleActive_ = false;
-  // Last value pushed to `display_.setTouchIndicator`, so we don't spam it.
-  uint8_t touchIndicatorMode_ = 0;
+  // Last values pushed to the DisplayManager indicators, so we don't spam.
+  bool touchIndicatorActive_ = false;
+  uint8_t playbackIndicatorMode_ = 0;
   bool bootButtonReleasedSinceBoot_ = false;
   bool bootButtonLongPressHandled_ = false;
   bool powerButtonReleasedSinceBoot_ = false;

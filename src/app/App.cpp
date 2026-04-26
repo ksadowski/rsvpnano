@@ -354,7 +354,7 @@ void App::update(uint32_t nowMs) {
   updateReader(nowMs);
   handleTouch(nowMs);
   maybeLatchAutoplay(nowMs);
-  updateTouchIndicator();
+  updateIndicators(nowMs);
   updateWpmFeedback(nowMs);
   maybeSaveReadingPosition(nowMs);
 
@@ -981,19 +981,46 @@ void App::maybeLatchAutoplay(uint32_t nowMs) {
   // state stays Playing; reader keeps advancing on its own.
 }
 
-void App::updateTouchIndicator() {
-  // 0=off, 1=touch active (green), 2=autoplay latched (cyan).
-  uint8_t mode = 0;
+void App::updateIndicators(uint32_t nowMs) {
+  // Top-left dot: visible while a finger is on the screen.
+  const bool nextTouchActive = touchSampleActive_;
+  // Top-center playback indicator: 0=off, 1=playing (green), 2=autoplay (cyan).
+  uint8_t nextPlaybackMode = 0;
   if (touchAutoplay_) {
-    mode = 2;
-  } else if (touchSampleActive_) {
-    mode = 1;
+    nextPlaybackMode = 2;
+  } else if (state_ == AppState::Playing) {
+    nextPlaybackMode = 1;
   }
-  if (mode == touchIndicatorMode_) {
+
+  const bool touchChanged = nextTouchActive != touchIndicatorActive_;
+  const bool playbackChanged = nextPlaybackMode != playbackIndicatorMode_;
+  if (!touchChanged && !playbackChanged) {
     return;
   }
-  touchIndicatorMode_ = mode;
-  display_.setTouchIndicator(mode);
+
+  if (touchChanged) {
+    touchIndicatorActive_ = nextTouchActive;
+    display_.setTouchIndicator(nextTouchActive);
+  }
+  if (playbackChanged) {
+    playbackIndicatorMode_ = nextPlaybackMode;
+    display_.setPlaybackIndicator(nextPlaybackMode);
+  }
+
+  // Force the current screen to repaint immediately so the indicators show
+  // up without waiting for the next state/word/battery change. Otherwise the
+  // top-left dot would stay on the panel for many seconds in Paused state.
+  if (state_ == AppState::Paused || state_ == AppState::Playing) {
+    if (contextViewVisible_) {
+      renderContextPreview();
+    } else if (wpmFeedbackVisible_) {
+      renderWpmFeedback(nowMs);
+    } else {
+      renderReaderWord();
+    }
+  } else if (state_ == AppState::Menu) {
+    renderMenu();
+  }
 }
 
 int App::scrubStepsForDrag(int deltaX) const {

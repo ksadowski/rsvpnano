@@ -849,13 +849,21 @@ DisplayManager::~DisplayManager() {
   }
 }
 
-void DisplayManager::setTouchIndicator(uint8_t mode) {
-  if (touchIndicatorMode_ == mode) {
+void DisplayManager::setTouchIndicator(bool active) {
+  if (touchIndicatorActive_ == active) {
     return;
   }
-  touchIndicatorMode_ = mode;
+  touchIndicatorActive_ = active;
   // Force the next renderer call to redraw rather than reuse the cached frame
   // — the dot has to appear/disappear immediately on touch transitions.
+  lastRenderKey_ = "";
+}
+
+void DisplayManager::setPlaybackIndicator(uint8_t mode) {
+  if (playbackIndicatorMode_ == mode) {
+    return;
+  }
+  playbackIndicatorMode_ = mode;
   lastRenderKey_ = "";
 }
 
@@ -1508,23 +1516,50 @@ void DisplayManager::drawBatteryBadge() {
     const int x = std::max(kFooterMarginX, kDisplayWidth - kFooterMarginX - width);
     drawTinyTextAt(batteryLabel_, x, kFooterMarginBottom, footerColor(), kTinyScale);
   }
-  // Piggy-back on the badge call site so every renderer picks up the dot
-  // without having to know about it individually.
-  drawTouchIndicator();
+  // Piggy-back on the badge call site so every renderer picks up the HUD
+  // indicators without having to know about them individually.
+  drawTouchDot();
+  drawPlaybackIndicator();
 }
 
-void DisplayManager::drawTouchIndicator() {
-  if (touchIndicatorMode_ == 0) {
+void DisplayManager::drawTouchDot() {
+  if (!touchIndicatorActive_) {
     return;
   }
 
-  // Top-left, mirroring the battery badge's top-right corner. Sized to match
-  // the tiny-text height so it stays visually proportional to the HUD.
-  constexpr int kIndicatorSize = 14;
-  const int x = kFooterMarginX;
-  const int y = kFooterMarginBottom;
-  // Pure-channel RGB565: green = 0x07E0, cyan = 0x07FF.
-  const uint16_t color = (touchIndicatorMode_ == 2) ? 0x07FF : 0x07E0;
+  // Top-left filled circle. Sized to match the tiny-text height so it stays
+  // visually proportional to the battery badge opposite it.
+  constexpr int kDotRadius = 6;
+  const int cx = kFooterMarginX + kDotRadius;
+  const int cy = kFooterMarginBottom + kDotRadius;
+  const uint16_t panel = panelColor(wordColor());
+  const int rSquared = kDotRadius * kDotRadius;
+  for (int dy = -kDotRadius; dy <= kDotRadius; ++dy) {
+    for (int dx = -kDotRadius; dx <= kDotRadius; ++dx) {
+      if (dx * dx + dy * dy > rSquared) {
+        continue;
+      }
+      const int px = cx + dx;
+      const int py = cy + dy;
+      if (px < 0 || px >= kVirtualBufferWidth || py < 0 ||
+          py >= kVirtualBufferHeight) {
+        continue;
+      }
+      virtualFrame_[py * kVirtualBufferWidth + px] = panel;
+    }
+  }
+}
+
+void DisplayManager::drawPlaybackIndicator() {
+  if (playbackIndicatorMode_ == 0) {
+    return;
+  }
+
+  // Top-center square. Pure-channel RGB565: green = 0x07E0, cyan = 0x07FF.
+  constexpr int kIndicatorSize = 12;
+  const int x = std::max(0, (kVirtualBufferWidth - kIndicatorSize) / 2);
+  const int y = kFooterMarginBottom + 1;
+  const uint16_t color = (playbackIndicatorMode_ == 2) ? 0x07FF : 0x07E0;
   fillVirtualRect(x, y, kIndicatorSize, kIndicatorSize, color);
 }
 

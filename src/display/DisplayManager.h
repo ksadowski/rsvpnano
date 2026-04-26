@@ -63,10 +63,12 @@ class DisplayManager {
   void renderStatus(const String &title, const String &line1 = "", const String &line2 = "");
   void renderProgress(const String &title, const String &line1 = "", const String &line2 = "",
                       int progressPercent = -1);
-  // Top-left status dot driven by the App's touch handler.
-  // mode 0 = hidden, 1 = touch active (green), 2 = autoplay latched (cyan).
-  // Repaints the next frame so the dot appears/disappears immediately.
-  void setTouchIndicator(uint8_t mode);
+  // Top-left touch dot. True while the finger is on the screen, false otherwise.
+  // Forces the next render to repaint so the dot appears/disappears promptly.
+  void setTouchIndicator(bool active);
+  // Top-center playback indicator.
+  // mode 0 = hidden, 1 = playing (green), 2 = autoplay latched (cyan).
+  void setPlaybackIndicator(uint8_t mode);
 
  private:
   bool initPanel();
@@ -103,9 +105,11 @@ class DisplayManager {
   void drawTinyTextAt(const String &text, int x, int y, uint16_t color, int scale);
   void drawTinyTextCentered(const String &text, int y, uint16_t color, int scale);
   void drawBatteryBadge();
-  // Top-left status dot. Painted from inside drawBatteryBadge so every
-  // render path picks it up without touching individual renderers.
-  void drawTouchIndicator();
+  // Top-left touch dot and top-center playback indicator. Both painted from
+  // inside drawBatteryBadge so every render path picks them up without
+  // touching individual renderers.
+  void drawTouchDot();
+  void drawPlaybackIndicator();
   void drawFooter(const String &chapterLabel, uint8_t progressPercent);
   void drawRsvpAnchorGuide(int anchorX, int textY, int textHeight);
   void drawWordAt(const String &word, int x, int y, uint16_t color);
@@ -128,7 +132,8 @@ class DisplayManager {
   bool nightMode_ = false;
   String lastRenderKey_;
   String batteryLabel_;
-  // Latest mode requested via setTouchIndicator. Drawn from drawBatteryBadge
-  // (which every renderer calls just before flushing the frame).
-  uint8_t touchIndicatorMode_ = 0;
+  // Latest indicator state. Drawn from drawBatteryBadge (which every renderer
+  // calls just before flushing the frame).
+  bool touchIndicatorActive_ = false;
+  uint8_t playbackIndicatorMode_ = 0;
 };
