@@ -32,6 +32,11 @@ class TouchHandler {
   uint8_t consecutiveReadFailures_ = 0;
   uint8_t emptyTouchSamples_ = 0;
   bool touchActive_ = false;
+  // When true, every `touched=1` sample is dropped until the controller
+  // reports a clean `touched=0`. Armed on begin()/cancel() to suppress the
+  // AXS15231B's post-wake phantom-touch burst while its capacitive baseline
+  // recalibrates (observed: seconds-long stream near screen centre).
+  bool requireReleaseBeforeAccept_ = true;
   uint16_t lastX_ = 0;
   uint16_t lastY_ = 0;
 

@@ -258,24 +258,31 @@ const uint8_t *readerBitmaps70() {
 // to know which family is live. The Sans struct is used as the canonical
 // renderer-facing shape; both Sans and Serif headers share identical layout
 // (verified by static_asserts at the top of this file).
+// Returned by value, not by reference into a shared static buffer. Two
+// successive calls used to clobber each other, so code like
+//   const auto &glyph = glyph70For(cps[i]);
+//   const auto &next  = glyph70For(cps[i + 1]);
+//   use(glyph.xOffset, next.xOffset);   // both read the same memory!
+// silently misread the first glyph's metrics as the second's, which broke
+// optical kerning at Medium size and produced overlapping letters.
 template <typename SrcGlyph>
-const EmbeddedSansGlyph &copyTo52ptCache(const SrcGlyph &src) {
-  static EmbeddedSansGlyph cached;
-  cached.bitmapOffset = src.bitmapOffset;
-  cached.xOffset = src.xOffset;
-  cached.width = src.width;
-  cached.xAdvance = src.xAdvance;
-  return cached;
+EmbeddedSansGlyph copyTo52ptCache(const SrcGlyph &src) {
+  EmbeddedSansGlyph copy{};
+  copy.bitmapOffset = src.bitmapOffset;
+  copy.xOffset = src.xOffset;
+  copy.width = src.width;
+  copy.xAdvance = src.xAdvance;
+  return copy;
 }
 
 template <typename SrcGlyph>
-const EmbeddedSans70Glyph &copyTo35ptCache(const SrcGlyph &src) {
-  static EmbeddedSans70Glyph cached;
-  cached.bitmapOffset = src.bitmapOffset;
-  cached.xOffset = src.xOffset;
-  cached.width = src.width;
-  cached.xAdvance = src.xAdvance;
-  return cached;
+EmbeddedSans70Glyph copyTo35ptCache(const SrcGlyph &src) {
+  EmbeddedSans70Glyph copy{};
+  copy.bitmapOffset = src.bitmapOffset;
+  copy.xOffset = src.xOffset;
+  copy.width = src.width;
+  copy.xAdvance = src.xAdvance;
+  return copy;
 }
 
 // Binary-searches the sparse extras side table for `cp`. Returns nullptr when
@@ -319,7 +326,7 @@ const ExtraGlyph *findExtra(uint32_t cp, const ExtraGlyph *extras,
         k##PREFIX##Glyphs[static_cast<uint8_t>('?') - k##PREFIX##FirstChar]);  \
   } while (0)
 
-const EmbeddedSansGlyph &glyphFor(uint32_t cp) {
+EmbeddedSansGlyph glyphFor(uint32_t cp) {
   switch (g_readerFontFamily) {
     case ReaderFontFamily::Serif:
       RSVP_RESOLVE_READER_GLYPH(EmbeddedSerif, copyTo52ptCache);
@@ -331,7 +338,7 @@ const EmbeddedSansGlyph &glyphFor(uint32_t cp) {
   }
 }
 
-const EmbeddedSans70Glyph &glyph70For(uint32_t cp) {
+EmbeddedSans70Glyph glyph70For(uint32_t cp) {
   switch (g_readerFontFamily) {
     case ReaderFontFamily::Serif:
       RSVP_RESOLVE_READER_GLYPH(EmbeddedSerif70, copyTo35ptCache);

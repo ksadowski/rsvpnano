@@ -31,6 +31,10 @@ bool TouchHandler::begin() {
   consecutiveReadFailures_ = 0;
   emptyTouchSamples_ = 0;
   touchActive_ = false;
+  // Require the controller to report a clean untouched sample before we
+  // accept any real events; otherwise the post-wake phantom-touch burst
+  // gets delivered as a fake gesture.
+  requireReleaseBeforeAccept_ = true;
   lastX_ = 0;
   lastY_ = 0;
   Wire.beginTransmission(kAddress);
@@ -59,6 +63,10 @@ void TouchHandler::cancel() {
   lastTouchSampleMs_ = 0;
   consecutiveReadFailures_ = 0;
   emptyTouchSamples_ = 0;
+  // Re-arm the release gate so a stale phantom-held sample from the
+  // controller (e.g. after USB transfer or a forced drop) can't be
+  // delivered as a Start until the finger is actually off the screen.
+  requireReleaseBeforeAccept_ = true;
 }
 
 bool TouchHandler::readTouchPacket(uint8_t *buffer, size_t len) {
@@ -110,6 +118,9 @@ bool TouchHandler::poll(TouchEvent &event) {
 
   const uint8_t points = data[1];
   if (points == 0 || points >= 5) {
+    // Any clean untouched sample disarms the release gate — from now on
+    // real touches are allowed through.
+    requireReleaseBeforeAccept_ = false;
     if (touchActive_) {
       ++emptyTouchSamples_;
       if (emptyTouchSamples_ < kReleaseConfirmSamples) {
@@ -124,6 +135,13 @@ bool TouchHandler::poll(TouchEvent &event) {
       event.phase = TouchPhase::End;
       return true;
     }
+    return false;
+  }
+
+  // Phantom-touch filter: before we've seen a clean lift, all touched=1
+  // samples are discarded so the post-wake baseline drift from the
+  // AXS15231B never surfaces as a gesture.
+  if (requireReleaseBeforeAccept_) {
     return false;
   }
 
