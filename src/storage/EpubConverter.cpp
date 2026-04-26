@@ -29,7 +29,7 @@ constexpr size_t kMaxTagChars = 512;
 constexpr size_t kMaxEntityChars = 16;
 constexpr size_t kOutputWrapWidth = 96;
 constexpr size_t kBufferedTextFlushThreshold = 220;
-constexpr const char *kConverterVersion = "stream-v6";
+constexpr const char *kConverterVersion = "stream-v8";
 
 enum class ContentExtractStatus {
   Complete,
@@ -466,6 +466,152 @@ bool hasReadableText(const String &token) {
   return false;
 }
 
+bool classListHasPageMarker(const String &classAttr) {
+  static const char *const kPageMarkers[] = {
+      "pagenum",         "pagenumber",       "page-number", "page_number",
+      "pagebreak",       "page-break",       "calibre_pagenum",
+      "calibre-pagenum", "pgnum",            "page-num",    "pageno",
+      "folio",
+      // Footnote / endnote / bibliography reference markers.
+      "noteref",         "footnote",         "footnoteref", "footnote-ref",
+      "fnref",           "fn",               "endnote",     "endnoteref",
+      "endnote-ref",     "calibre_footnote", "calibre-footnote",
+      "bibref",          "biblioref",        "reference-mark"};
+  String value = classAttr;
+  value.toLowerCase();
+  size_t i = 0;
+  while (i < value.length()) {
+    while (i < value.length() && isWhitespace(value[i])) {
+      ++i;
+    }
+    size_t start = i;
+    while (i < value.length() && !isWhitespace(value[i])) {
+      ++i;
+    }
+    if (start == i) {
+      continue;
+    }
+    const String token = value.substring(start, i);
+    for (const char *marker : kPageMarkers) {
+      if (token == marker) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool epubTypeIsSuppressed(const String &value) {
+  String v = value;
+  v.toLowerCase();
+  static const char *const kSuppressedTokens[] = {
+      "pagebreak",   "page-break",  "pagenumber",   "page-number",
+      "page-list",   "noteref",     "endnoteref",   "biblioref",
+      "footnote",    "footnotes",   "endnote",      "endnotes",
+      "rearnote",    "rearnotes",   "bibliography", "annoref"};
+  for (const char *token : kSuppressedTokens) {
+    if (v.indexOf(token) >= 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool roleIsSuppressed(const String &value) {
+  String r = value;
+  r.toLowerCase();
+  return r == "doc-pagebreak" || r == "doc-noteref" || r == "doc-footnote" ||
+         r == "doc-endnote" || r == "doc-endnotes" || r == "doc-rearnote" ||
+         r == "doc-rearnotes" || r == "doc-bibliography" ||
+         r == "doc-biblioref" || r == "doc-annoref";
+}
+
+bool isSuppressedElement(const String &tag) {
+  const String epubType = attributeValue(tag, "epub:type");
+  if (!epubType.isEmpty() && epubTypeIsSuppressed(epubType)) {
+    return true;
+  }
+  const String role = attributeValue(tag, "role");
+  if (!role.isEmpty() && roleIsSuppressed(role)) {
+    return true;
+  }
+  const String classes = attributeValue(tag, "class");
+  if (!classes.isEmpty() && classListHasPageMarker(classes)) {
+    return true;
+  }
+  return false;
+}
+
+bool looksLikePageNumberLine(const String &line) {
+  String s = line;
+  s.trim();
+  if (s.isEmpty() || s.length() > 40) {
+    return false;
+  }
+
+  auto isStripChar = [](unsigned char c) -> bool {
+    return c == ' ' || c == '\t' || c == '-' || c == '*' || c == '#' ||
+           c == '.' || c == ',' || c == ':' || c == ';' || c == '[' ||
+           c == ']' || c == '(' || c == ')' || c == '|' || c == '_' ||
+           c == '=' || c == '~' || c == '\'' || c == '"' || c >= 0x80;
+  };
+
+  int start = 0;
+  int end = static_cast<int>(s.length()) - 1;
+  while (start <= end && isStripChar(static_cast<unsigned char>(s[start]))) {
+    ++start;
+  }
+  while (end >= start && isStripChar(static_cast<unsigned char>(s[end]))) {
+    --end;
+  }
+  if (start > end) {
+    return false;
+  }
+
+  const String core = s.substring(start, end + 1);
+
+  // Bare number (1-4 digits).
+  bool allDigits = !core.isEmpty();
+  for (size_t i = 0; i < core.length() && allDigits; ++i) {
+    if (std::isdigit(static_cast<unsigned char>(core[i])) == 0) {
+      allDigits = false;
+    }
+  }
+  if (allDigits && core.length() <= 4) {
+    return true;
+  }
+
+  // "page N", "p. N", "strona N", "str. N", "s. N".
+  String coreLower = core;
+  coreLower.toLowerCase();
+  static const char *const kPrefixes[] = {"page ",   "p. ",     "p ",
+                                          "strona ", "str. ",   "str ",
+                                          "s. ",     "seite ",  "pag. ",
+                                          "pag "};
+  for (const char *prefix : kPrefixes) {
+    const String p(prefix);
+    if (!coreLower.startsWith(p)) {
+      continue;
+    }
+    String rest = core.substring(p.length());
+    rest.trim();
+    if (rest.isEmpty() || rest.length() > 4) {
+      continue;
+    }
+    bool restDigits = true;
+    for (size_t i = 0; i < rest.length() && restDigits; ++i) {
+      if (std::isdigit(static_cast<unsigned char>(rest[i])) == 0) {
+        restDigits = false;
+      }
+    }
+    if (restDigits) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 bool writeBodyLine(File &output, const String &line, size_t &wordCount, size_t maxWords);
 
 bool flushWordAlignedPrefix(File &output, String &line, size_t &wordCount, size_t maxWords) {
@@ -500,6 +646,10 @@ bool flushWordAlignedPrefix(File &output, String &line, size_t &wordCount, size_
 }
 
 bool writeBodyLine(File &output, const String &line, size_t &wordCount, size_t maxWords) {
+  if (looksLikePageNumberLine(line)) {
+    return !reachedWordLimit(wordCount, maxWords);
+  }
+
   String token;
   String outputLine;
 
@@ -879,18 +1029,36 @@ class XhtmlRsvpStreamWriter {
     }
 
     if (skipDepth_ > 0) {
-      if (!closing && isSkipTag(name) && !selfClosing) {
-        ++skipDepth_;
-      } else if (closing && isSkipTag(name)) {
-        --skipDepth_;
+      if (name == skipTagName_) {
+        if (!closing && !selfClosing) {
+          ++skipDepth_;
+        } else if (closing) {
+          --skipDepth_;
+          if (skipDepth_ == 0) {
+            skipTagName_ = "";
+          }
+        }
       }
       return true;
     }
 
-    if (isSkipTag(name) && !closing && !selfClosing) {
+    if (!closing && isSkipTag(name) && !selfClosing) {
       if (!flushLine()) {
         return false;
       }
+      skipTagName_ = name;
+      skipDepth_ = 1;
+      return true;
+    }
+
+    if (!closing && (isSuppressedElement(tag) || name == "sup")) {
+      if (selfClosing) {
+        return true;
+      }
+      // Suppress the subtree silently; do NOT flushLine so inline page
+      // markers / footnote refs in the middle of a paragraph don't split
+      // the surrounding text.
+      skipTagName_ = name;
       skipDepth_ = 1;
       return true;
     }
@@ -1006,6 +1174,7 @@ class XhtmlRsvpStreamWriter {
   bool inHeading_ = false;
   bool reachedWordLimit_ = false;
   int skipDepth_ = 0;
+  String skipTagName_;
 };
 
 bool isContentDocument(const ManifestItem &item) {
