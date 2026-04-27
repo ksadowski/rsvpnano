@@ -111,12 +111,13 @@ const ASCII_REPLACEMENTS = {
 const SPACE_LIKE_RE =
   /[\u00A0\u1680\u180E\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\r\n\t]/g;
 const COMBINING_MARKS_RE = /[\u0300-\u036f]/g;
+const DEFAULT_OUTPUT_MODE = "ascii";
 
 const state = {
   items: [],
   directoryHandle: null,
   folderInventory: null,
-  outputMode: "ascii",
+  outputMode: DEFAULT_OUTPUT_MODE,
   isBusy: false,
   dragDepth: 0,
   nextId: 1,
@@ -136,7 +137,6 @@ const elements = {
   folderSummary: document.querySelector("#library-folder-summary"),
   list: document.querySelector("#library-list"),
   empty: document.querySelector("#library-empty"),
-  outputMode: document.querySelector("#library-output-mode"),
   status: document.querySelector("#library-status"),
   summary: document.querySelector("#library-summary"),
   syncButton: document.querySelector("#library-sync-button"),
@@ -190,15 +190,6 @@ function initialize() {
 
   elements.syncButton.addEventListener("click", async () => {
     await syncReadyBooksToSelectedDirectory();
-  });
-
-  elements.outputMode.addEventListener("change", async () => {
-    state.outputMode = elements.outputMode.value;
-    if (state.items.length === 0) {
-      refreshUi();
-      return;
-    }
-    await reconvertAllItems();
   });
 
   elements.list.addEventListener("click", async (event) => {
@@ -283,17 +274,15 @@ function supportsDirectoryAccess() {
 function refreshUi() {
   const readyItems = state.items.filter((item) => item.status === "ready");
   const totalWords = readyItems.reduce((sum, item) => sum + item.wordCount, 0);
-  const outputModeLabel =
-    state.outputMode === "ascii" ? "ASCII-safe output" : "Unicode-preserving output";
 
   elements.summary.textContent =
     readyItems.length === 0
-      ? `0 converted books ready in ${outputModeLabel.toLowerCase()}`
+      ? "0 converted books ready"
       : `${readyItems.length} converted ${pluralize("book", readyItems.length)} ready, ${formatNumber(totalWords)} ${pluralize("word", totalWords)}`;
 
   elements.folderLabel.textContent = state.directoryHandle
     ? `/${state.directoryHandle.name}`
-    : "No /books folder selected yet";
+    : "No /books folder selected";
 
   if (state.folderInventory) {
     const { sources, rsvp, sidecars, unsupported } = state.folderInventory;
@@ -307,7 +296,7 @@ function refreshUi() {
     }
     elements.folderSummary.textContent = parts.join(", ");
   } else {
-    elements.folderSummary.textContent = "Choose the SD card’s /books folder to scan it";
+    elements.folderSummary.textContent = "Pick the SD card’s /books folder to scan it";
   }
 
   const noFolder = !state.directoryHandle;
@@ -315,7 +304,6 @@ function refreshUi() {
   const noItems = state.items.length === 0;
 
   elements.addButton.disabled = state.isBusy;
-  elements.outputMode.disabled = state.isBusy;
   elements.fileInput.disabled = state.isBusy;
   elements.downloadButton.disabled = state.isBusy || noReadyItems;
   elements.clearButton.disabled = state.isBusy || noItems;
@@ -351,7 +339,6 @@ function renderLibrary() {
           : item.status === "error"
             ? "Needs attention"
             : "Converting";
-      const modeLabel = item.mode === "unicode" ? "Unicode" : "ASCII";
       const authorPill = item.author ? `<span class="pill">${escapeHtml(item.author)}</span>` : "";
       const warningCopy = item.warning
         ? `<p class="library-item-copy">${escapeHtml(item.warning)}</p>`
@@ -374,7 +361,6 @@ function renderLibrary() {
           </div>
           <div class="library-item-meta">
             <span class="pill">${escapeHtml(item.sourceExt.slice(1).toUpperCase())}</span>
-            <span class="pill">${escapeHtml(modeLabel)}</span>
             <span class="pill">${formatNumber(item.wordCount)} ${pluralize("word", item.wordCount)}</span>
             <span class="pill">${formatNumber(item.chapterCount)} ${pluralize("chapter", item.chapterCount)}</span>
             ${authorPill}
@@ -584,38 +570,6 @@ async function convertDescriptorIntoItem(item) {
     item.wordCount = 0;
     item.chapterCount = 0;
   }
-}
-
-async function reconvertAllItems() {
-  if (state.items.length === 0) {
-    return;
-  }
-
-  await withBusy(async () => {
-    setStatus(
-      "Refreshing output mode",
-      `Rebuilding ${state.items.length} ${pluralize("book", state.items.length)} in ${state.outputMode === "ascii" ? "ASCII-safe" : "Unicode-preserving"} mode.`,
-      "busy",
-    );
-
-    for (let index = 0; index < state.items.length; index += 1) {
-      const item = state.items[index];
-      setStatus(
-        "Refreshing output mode",
-        `Re-converting ${index + 1} of ${state.items.length}: ${item.sourceName}`,
-        "busy",
-      );
-      await convertDescriptorIntoItem(item);
-      renderLibrary();
-      refreshUi();
-    }
-
-    setStatus(
-      "Output mode updated",
-      "The library has been rebuilt with the new conversion setting.",
-      "success",
-    );
-  });
 }
 
 async function reconvertSingleItem(item) {
@@ -1476,11 +1430,6 @@ function refreshItemWarnings() {
   const duplicateNames = new Set(duplicateOutputNamesFor(state.items.filter((item) => item.status === "ready")));
   for (const item of state.items) {
     const warnings = [];
-    if (item.status === "ready" && state.outputMode === "unicode" && /[^\x00-\x7F]/.test(item.outputText)) {
-      warnings.push(
-        "This export preserves Unicode characters. Current firmware builds still render ASCII best.",
-      );
-    }
     if (item.status === "ready" && duplicateNames.has(item.outputName)) {
       warnings.push(
         `Another source in the workspace also outputs ${item.outputName}. Sync is blocked until the collision is resolved.`,

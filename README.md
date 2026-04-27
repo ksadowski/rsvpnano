@@ -34,8 +34,7 @@ The browser workflow currently accepts:
 - `.md` / `.markdown`
 - `.html` / `.htm` / `.xhtml`
 
-The default export mode is `Device-safe ASCII`, which fits the current firmware best. A
-`Preserve Unicode` mode is also available for experimentation and future renderer work.
+The browser page automatically writes the most compatible `.rsvp` output for the current firmware.
 
 ### Add Books
 

@@ -163,7 +163,7 @@
 
       .workspace-shell {
         display: grid;
-        grid-template-columns: minmax(0, 0.92fr) minmax(280px, 1.08fr);
+        grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
       }
 
       .workspace-pane {
@@ -194,6 +194,7 @@
         flex-wrap: wrap;
         gap: 10px;
         margin-top: 22px;
+        align-items: flex-start;
       }
 
       .tool-button,
@@ -208,6 +209,8 @@
       .tool-button {
         padding: 12px 16px;
         cursor: pointer;
+        max-width: 100%;
+        white-space: nowrap;
       }
 
       .tool-button:hover:enabled {
@@ -238,6 +241,7 @@
       }
 
       .dropzone {
+        display: block;
         margin-top: 22px;
         padding: 24px;
         border: 1.5px dashed rgba(132, 47, 32, 0.34);
@@ -245,6 +249,7 @@
         background:
           linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.2)),
           radial-gradient(circle at top right, rgba(211, 84, 47, 0.14), transparent 16rem);
+        overflow: hidden;
         transition:
           border-color 150ms ease,
           transform 150ms ease,
@@ -269,12 +274,13 @@
 
       .meta-grid {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
         gap: 12px;
         margin-top: 20px;
       }
 
       .meta-card {
+        min-width: 0;
         padding: 16px 18px;
         border: 1px solid var(--line);
         border-radius: 18px;
@@ -292,7 +298,17 @@
       .meta-card strong {
         display: block;
         margin-top: 8px;
-        font-size: 1.08rem;
+        font-size: 1.03rem;
+        line-height: 1.24;
+        overflow-wrap: anywhere;
+      }
+
+      .meta-card-copy {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 0.9rem;
+        line-height: 1.4;
+        overflow-wrap: anywhere;
       }
 
       .inline-note {
@@ -302,6 +318,8 @@
         background: rgba(117, 105, 92, 0.1);
         color: var(--muted);
         font-size: 0.92rem;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
       }
 
       .workspace-status {
@@ -312,6 +330,7 @@
         background: rgba(255, 255, 255, 0.5);
         color: var(--muted);
         min-height: 66px;
+        overflow-wrap: anywhere;
       }
 
       .workspace-status[data-tone="busy"] {
@@ -365,11 +384,14 @@
 
       .library-item-head {
         justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
       }
 
       .library-item-title {
         display: grid;
         gap: 6px;
+        min-width: 0;
       }
 
       .library-item-title strong {
@@ -413,6 +435,7 @@
       .library-item-copy {
         margin-top: 12px;
         line-height: 1.5;
+        overflow-wrap: anywhere;
       }
 
       .library-item-actions {
@@ -451,6 +474,17 @@
         font: 0.9rem/1.4 ui-sans-serif, system-ui, sans-serif;
       }
 
+      @media (max-width: 980px) {
+        .workspace-shell {
+          grid-template-columns: 1fr;
+        }
+
+        .workspace-pane + .workspace-pane {
+          border-left: 0;
+          border-top: 1px solid var(--line);
+        }
+      }
+
       @media (max-width: 760px) {
         main {
           width: min(100% - 20px, 560px);
@@ -459,15 +493,6 @@
 
         .hero {
           grid-template-columns: 1fr;
-        }
-
-        .workspace-shell {
-          grid-template-columns: 1fr;
-        }
-
-        .workspace-pane + .workspace-pane {
-          border-left: 0;
-          border-top: 1px solid var(--line);
         }
 
         .meta-grid {
@@ -582,17 +607,13 @@
 
             <div class="meta-grid">
               <div class="meta-card">
-                <span>Output Mode</span>
-                <strong>
-                  <select class="tool-select" id="library-output-mode">
-                    <option value="ascii">Device-safe ASCII (Recommended)</option>
-                    <option value="unicode">Preserve Unicode (Experimental)</option>
-                  </select>
-                </strong>
+                <span>Compatibility</span>
+                <strong>Automatic device-safe output</strong>
+                <p class="meta-card-copy">Best fit for the current firmware.</p>
               </div>
               <div class="meta-card">
                 <span>Selected Folder</span>
-                <strong id="library-folder-label">No /books folder selected yet</strong>
+                <strong id="library-folder-label">No /books folder selected</strong>
               </div>
               <div class="meta-card">
                 <span>Library Summary</span>
@@ -600,14 +621,13 @@
               </div>
               <div class="meta-card">
                 <span>Folder Inventory</span>
-                <strong id="library-folder-summary">Choose the SD card&rsquo;s /books folder to scan it</strong>
+                <strong id="library-folder-summary">Pick the SD card&rsquo;s /books folder to scan it</strong>
               </div>
             </div>
 
             <p class="inline-note">
-              The current firmware still reads ASCII best, so the default output mode folds accented
-              letters and punctuation into safer equivalents. The Unicode mode is useful for testing
-              future firmware work and preserving the original text in exported <code>.rsvp</code> files.
+              Everything is converted locally in your browser. Pick the SD card&rsquo;s
+              <code>/books</code> folder if you want one-click import, cleanup, and sync.
             </p>
 
             <div class="workspace-status" id="library-status" data-tone="info">
@@ -620,8 +640,8 @@
           <div class="workspace-pane">
             <h3>Converted Books</h3>
             <p class="workspace-copy">
-              Each imported source is converted on-device format side by side so you can download it,
-              replace it, or push everything back to the selected folder in one sync.
+              Each imported source is turned into a reader-ready <code>.rsvp</code> file so you can
+              download it or sync everything back to the selected folder in one step.
             </p>
 
             <ul class="library-list" id="library-list"></ul>
