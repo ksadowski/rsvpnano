@@ -13,6 +13,14 @@ constexpr uint8_t kReadTouchCommand[] = {
 constexpr uint32_t kPollIntervalMs = 20;
 constexpr uint32_t kFailureBackoffMs = 250;
 constexpr uint8_t kReleaseConfirmSamples = 2;
+// Stuck-touch watchdog: the AXS15231B occasionally wedges into a state where
+// it keeps reporting `points=1` with the same coordinates indefinitely after
+// the finger has actually lifted. If the position hasn't moved by at least
+// `kStuckMotionPx` for `kStuckTouchTimeoutMs`, we synthesize an End event,
+// re-arm the post-release gate, and let the next clean lift unblock new
+// touches.
+constexpr uint32_t kStuckTouchTimeoutMs = 2500;
+constexpr uint16_t kStuckMotionPx = 5;
 
 uint16_t clampDisplayX(uint16_t x) {
   return std::min<uint16_t>(x, static_cast<uint16_t>(BoardConfig::DISPLAY_WIDTH - 1));
@@ -37,6 +45,9 @@ bool TouchHandler::begin() {
   requireReleaseBeforeAccept_ = true;
   lastX_ = 0;
   lastY_ = 0;
+  lastSignificantMotionMs_ = 0;
+  stuckAnchorX_ = 0;
+  stuckAnchorY_ = 0;
   Wire.beginTransmission(kAddress);
   const uint8_t error = Wire.endTransmission();
   initialized_ = (error == 0);
@@ -150,23 +161,70 @@ bool TouchHandler::poll(TouchEvent &event) {
   emptyTouchSamples_ = 0;
   lastTouchSampleMs_ = now;
 
+  const uint16_t rawLongAxis = static_cast<uint16_t>(((data[2] & 0x0F) << 8) | data[3]);
+  const uint16_t rawShortAxis = static_cast<uint16_t>(((data[4] & 0x0F) << 8) | data[5]);
+
+  // Drop packets where the decoded coordinate is outside the panel. The
+  // AXS15231B periodically emits corrupt frames with values like x=502/637/638
+  // or y=171; clamping them would smear `lastX_/lastY_` and confuse the
+  // stuck-touch watchdog and gesture handlers.
+  if (rawLongAxis >= static_cast<uint16_t>(BoardConfig::DISPLAY_WIDTH) ||
+      rawShortAxis >= static_cast<uint16_t>(BoardConfig::DISPLAY_HEIGHT)) {
+    return false;
+  }
+
+  const uint16_t mappedX = clampDisplayX(rawLongAxis);
+  const uint16_t mappedY = clampDisplayY(rawShortAxis);
+  uint16_t outX;
+  uint16_t outY;
+  if (BoardConfig::UI_ROTATED_180) {
+    outX = static_cast<uint16_t>(BoardConfig::DISPLAY_WIDTH - 1 - mappedX);
+    outY = static_cast<uint16_t>(BoardConfig::DISPLAY_HEIGHT - 1 - mappedY);
+  } else {
+    outX = mappedX;
+    outY = mappedY;
+  }
+
+  // Stuck-touch watchdog. While touchActive_ is true, every sample either
+  // moves significantly (re-anchors the watchdog) or accumulates idle time.
+  // If the position has been pinned within `kStuckMotionPx` of the anchor
+  // for `kStuckTouchTimeoutMs`, synthesize an End event and re-arm the
+  // post-release gate so the next clean controller release unblocks input.
+  if (touchActive_) {
+    const int dx = static_cast<int>(outX) - static_cast<int>(stuckAnchorX_);
+    const int dy = static_cast<int>(outY) - static_cast<int>(stuckAnchorY_);
+    const bool moved = (dx * dx + dy * dy) >=
+                       static_cast<int>(kStuckMotionPx) * static_cast<int>(kStuckMotionPx);
+    if (moved) {
+      stuckAnchorX_ = outX;
+      stuckAnchorY_ = outY;
+      lastSignificantMotionMs_ = now;
+    } else if (now - lastSignificantMotionMs_ >= kStuckTouchTimeoutMs) {
+      Serial.printf("[touch] Stuck-touch watchdog tripped at x=%u y=%u, synthesizing End\n",
+                    static_cast<unsigned int>(outX), static_cast<unsigned int>(outY));
+      touchActive_ = false;
+      emptyTouchSamples_ = 0;
+      requireReleaseBeforeAccept_ = true;
+      event.touched = false;
+      event.x = lastX_;
+      event.y = lastY_;
+      event.phase = TouchPhase::End;
+      return true;
+    }
+  } else {
+    stuckAnchorX_ = outX;
+    stuckAnchorY_ = outY;
+    lastSignificantMotionMs_ = now;
+  }
+
   event.touched = true;
   event.gesture = 0;
   event.phase = touchActive_ ? TouchPhase::Move : TouchPhase::Start;
-  const uint16_t rawLongAxis = static_cast<uint16_t>(((data[2] & 0x0F) << 8) | data[3]);
-  const uint16_t rawShortAxis = static_cast<uint16_t>(((data[4] & 0x0F) << 8) | data[5]);
-  const uint16_t mappedX = clampDisplayX(rawLongAxis);
-  const uint16_t mappedY = clampDisplayY(rawShortAxis);
-  if (BoardConfig::UI_ROTATED_180) {
-    event.x = static_cast<uint16_t>(BoardConfig::DISPLAY_WIDTH - 1 - mappedX);
-    event.y = static_cast<uint16_t>(BoardConfig::DISPLAY_HEIGHT - 1 - mappedY);
-  } else {
-    event.x = mappedX;
-    event.y = mappedY;
-  }
+  event.x = outX;
+  event.y = outY;
   touchActive_ = true;
-  lastX_ = event.x;
-  lastY_ = event.y;
+  lastX_ = outX;
+  lastY_ = outY;
 
   return true;
 }

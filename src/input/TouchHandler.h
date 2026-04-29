@@ -39,6 +39,13 @@ class TouchHandler {
   bool requireReleaseBeforeAccept_ = true;
   uint16_t lastX_ = 0;
   uint16_t lastY_ = 0;
+  // Last time the touch position moved by at least `kStuckMotionPx` from the
+  // anchor below. Used by the stuck-touch watchdog to detect AXS15231B
+  // wedge-states where the controller keeps reporting `points=1` at the same
+  // coordinate forever even though the finger has lifted.
+  uint32_t lastSignificantMotionMs_ = 0;
+  uint16_t stuckAnchorX_ = 0;
+  uint16_t stuckAnchorY_ = 0;
 
   bool readTouchPacket(uint8_t *buffer, size_t len);
 };
