@@ -534,29 +534,7 @@ uint32_t ReadingLoop::elapsedInCurrentWordMs(uint32_t nowMs) const {
 }
 
 bool ReadingLoop::currentWordEndsSentence() const {
-  if (currentWord_.isEmpty()) {
-    return false;
-  }
-
-  bool nextWordStartsLowercase = false;
-  const size_t nextIndex = currentIndex_ + 1;
-  if (!loadedWords_.empty()) {
-    if (nextIndex < loadedWords_.size()) {
-      nextWordStartsLowercase = startsWithLowercaseLetter(loadedWords_[nextIndex]);
-    }
-  } else if (nextIndex < kDemoWordCount) {
-    nextWordStartsLowercase = startsWithLowercaseLetter(String(kDemoWords[nextIndex]));
-  }
-
-  switch (trailingRhythmChar(currentWord_)) {
-    case '!':
-    case '?':
-      return true;
-    case '.':
-      return !looksLikeAbbreviation(currentWord_, nextWordStartsLowercase);
-    default:
-      return false;
-  }
+  return wordEndsSentenceAt(currentIndex_);
 }
 
 bool ReadingLoop::atEnd() const {
@@ -610,6 +588,21 @@ void ReadingLoop::seekRelative(size_t baseIndex, int steps) {
 
   currentIndex_ = static_cast<size_t>(nextIndex);
   setCurrentWordFromIndex();
+}
+
+void ReadingLoop::rewindSentence() {
+  const size_t count = wordCount();
+  if (count == 0) {
+    return;
+  }
+
+  const size_t currentSentenceStart = sentenceStartAtOrBefore(currentIndex_);
+  if (currentSentenceStart == currentIndex_ && currentIndex_ > 0) {
+    seekTo(sentenceStartAtOrBefore(currentIndex_ - 1));
+    return;
+  }
+
+  seekTo(currentSentenceStart);
 }
 
 void ReadingLoop::adjustWpm(int delta) {
@@ -699,3 +692,53 @@ String ReadingLoop::wordAt(size_t index) const {
 }
 
 bool ReadingLoop::usingLoadedBook() const { return !loadedWords_.empty(); }
+
+bool ReadingLoop::nextWordStartsLowercaseAt(size_t wordIndex) const {
+  const size_t nextIndex = wordIndex + 1;
+  if (nextIndex >= wordCount()) {
+    return false;
+  }
+
+  return startsWithLowercaseLetter(wordAt(nextIndex));
+}
+
+bool ReadingLoop::wordEndsSentenceAt(size_t wordIndex) const {
+  if (wordIndex >= wordCount()) {
+    return false;
+  }
+
+  const String word = wordAt(wordIndex);
+  if (word.isEmpty()) {
+    return false;
+  }
+
+  switch (trailingRhythmChar(word)) {
+    case '!':
+    case '?':
+      return true;
+    case '.':
+      return !looksLikeAbbreviation(word, nextWordStartsLowercaseAt(wordIndex));
+    default:
+      return false;
+  }
+}
+
+size_t ReadingLoop::sentenceStartAtOrBefore(size_t wordIndex) const {
+  const size_t count = wordCount();
+  if (count == 0) {
+    return 0;
+  }
+
+  if (wordIndex >= count) {
+    wordIndex = count - 1;
+  }
+
+  while (wordIndex > 0) {
+    if (wordEndsSentenceAt(wordIndex - 1)) {
+      break;
+    }
+    --wordIndex;
+  }
+
+  return wordIndex;
+}

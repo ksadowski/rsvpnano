@@ -34,6 +34,7 @@ constexpr uint16_t kSwipeThresholdPx = 40;
 constexpr uint16_t kAxisBiasPx = 12;
 constexpr uint16_t kTapSlopPx = 18;
 constexpr uint16_t kReaderDoubleTapSlopPx = 36;
+constexpr uint16_t kPreviousSentenceTapWidthPx = 96;
 constexpr uint16_t kFooterMetricTapWidthPx = 220;
 constexpr uint16_t kFooterMetricTapHeightPx = 32;
 constexpr uint16_t kScrubStepPx = 22;
@@ -69,6 +70,7 @@ enum SettingsItem : size_t {
   SettingsDisplay,
   SettingsTypography,
   SettingsWordPacing,
+  SettingsHandedness,
   SettingsBrightness,
   SettingsTheme,
   SettingsPhantomWords,
@@ -108,9 +110,10 @@ constexpr size_t kSettingsHomePacingIndex = 3;
 constexpr size_t kSettingsHomeWifiIndex = 4;
 constexpr size_t kSettingsHomeUpdateIndex = 5;
 constexpr size_t kSettingsDisplayReadingModeIndex = 1;
-constexpr size_t kSettingsDisplayThemeIndex = 2;
-constexpr size_t kSettingsDisplayBrightnessIndex = 3;
-constexpr size_t kSettingsDisplayLanguageIndex = 4;
+constexpr size_t kSettingsDisplayHandednessIndex = 2;
+constexpr size_t kSettingsDisplayThemeIndex = 3;
+constexpr size_t kSettingsDisplayBrightnessIndex = 4;
+constexpr size_t kSettingsDisplayLanguageIndex = 5;
 constexpr size_t kSettingsPacingLongWordsIndex = 1;
 constexpr size_t kSettingsPacingComplexityIndex = 2;
 constexpr size_t kSettingsPacingPunctuationIndex = 3;
@@ -134,6 +137,7 @@ constexpr const char *kPrefDarkMode = "dark";
 constexpr const char *kPrefNightMode = "night";
 constexpr const char *kPrefUiLanguage = "ui_lang";
 constexpr const char *kPrefReaderMode = "read_mode";
+constexpr const char *kPrefHandedness = "handed";
 constexpr const char *kPrefPhantomWords = "phantom_on";
 constexpr const char *kPrefFooterMetricMode = "prog_md";
 constexpr const char *kPrefReaderFontSize = "font_size";
@@ -165,6 +169,9 @@ constexpr int8_t kTypographyTrackingMin = -2;
 constexpr int8_t kTypographyTrackingMax = 3;
 constexpr uint8_t kTypographyAnchorMin = 30;
 constexpr uint8_t kTypographyAnchorMax = 40;
+constexpr uint8_t kLeftHandAnchorOffset = 20;
+constexpr uint8_t kLeftHandAnchorMin = kTypographyAnchorMin + kLeftHandAnchorOffset;
+constexpr uint8_t kLeftHandAnchorMax = kTypographyAnchorMax + kLeftHandAnchorOffset;
 constexpr uint8_t kTypographyGuideWidthMin = 12;
 constexpr uint8_t kTypographyGuideWidthMax = 30;
 constexpr uint8_t kTypographyGuideWidthStep = 2;
@@ -320,6 +327,26 @@ App::ReaderMode readerModeFromSetting(uint8_t value) {
   }
 }
 
+App::HandednessMode handednessModeFromSetting(uint8_t value) {
+  switch (value) {
+    case static_cast<uint8_t>(App::HandednessMode::Left):
+      return App::HandednessMode::Left;
+    case static_cast<uint8_t>(App::HandednessMode::Right):
+    default:
+      return App::HandednessMode::Right;
+  }
+}
+
+App::HandednessMode nextHandednessMode(App::HandednessMode current) {
+  switch (handednessModeFromSetting(static_cast<uint8_t>(current))) {
+    case App::HandednessMode::Left:
+      return App::HandednessMode::Right;
+    case App::HandednessMode::Right:
+    default:
+      return App::HandednessMode::Left;
+  }
+}
+
 App::ReaderMode nextReaderMode(App::ReaderMode current) {
   switch (readerModeFromSetting(static_cast<uint8_t>(current))) {
     case App::ReaderMode::Rsvp:
@@ -382,6 +409,8 @@ void App::begin() {
           kPrefUiLanguage, static_cast<uint8_t>(uiLanguage_)));
   readerMode_ = readerModeFromSetting(
       preferences_.getUChar(kPrefReaderMode, static_cast<uint8_t>(readerMode_)));
+  handednessMode_ = handednessModeFromSetting(
+      preferences_.getUChar(kPrefHandedness, static_cast<uint8_t>(handednessMode_)));
   readerFontSizeIndex_ = preferences_.getUChar(kPrefReaderFontSize, readerFontSizeIndex_);
   if (readerFontSizeIndex_ >= kReaderFontSizeCount) {
     readerFontSizeIndex_ = 0;
@@ -424,6 +453,7 @@ void App::begin() {
       kTypographyGuideGapMin, kTypographyGuideGapMax));
   darkMode_ = preferences_.getBool(kPrefDarkMode, darkMode_);
   nightMode_ = preferences_.getBool(kPrefNightMode, nightMode_);
+  applyHandednessSettings(0, false);
   applyDisplayPreferences(0, false);
   applyTypographySettings(0, false);
   applyPacingSettings();
@@ -796,14 +826,31 @@ void App::applyDisplayPreferences(uint32_t nowMs, bool rerender) {
   }
 }
 
+void App::applyHandednessSettings(uint32_t nowMs, bool rerender) {
+  touch_.setUiRotated180(uiRotated180());
+  display_.setUiRotated180(uiRotated180());
+
+  if (!rerender) {
+    return;
+  }
+
+  if (state_ == AppState::Menu &&
+      (menuScreen_ == MenuScreen::SettingsHome || menuScreen_ == MenuScreen::SettingsDisplay ||
+       menuScreen_ == MenuScreen::SettingsPacing || menuScreen_ == MenuScreen::WifiSettings)) {
+    rebuildSettingsMenuItems();
+  }
+
+  applyTypographySettings(nowMs);
+}
+
 void App::applyTypographySettings(uint32_t nowMs, bool rerender) {
-  display_.setTypographyConfig(typographyConfig_);
+  display_.setTypographyConfig(effectiveTypographyConfig());
 
   Serial.printf("[typography] face=%s highlight=%s track=%d anchor=%u guideWidth=%u guideGap=%u\n",
                 readerTypefaceLabel().c_str(),
                 focusHighlightLabel().c_str(),
                 static_cast<int>(typographyConfig_.trackingPx),
-                static_cast<unsigned int>(typographyConfig_.anchorPercent),
+                static_cast<unsigned int>(effectiveAnchorPercent()),
                 static_cast<unsigned int>(typographyConfig_.guideHalfWidth),
                 static_cast<unsigned int>(typographyConfig_.guideGap));
 
@@ -885,6 +932,14 @@ void App::cycleReaderMode(uint32_t nowMs) {
   renderActiveReader(nowMs);
 }
 
+void App::cycleHandednessMode(uint32_t nowMs) {
+  handednessMode_ = nextHandednessMode(handednessMode_);
+  preferences_.putUChar(kPrefHandedness, static_cast<uint8_t>(handednessMode_));
+  Serial.printf("[display] handedness=%s rotation180=%u\n", handednessLabel().c_str(),
+                uiRotated180() ? 1U : 0U);
+  applyHandednessSettings(nowMs);
+}
+
 void App::togglePhantomWords(uint32_t nowMs) {
   phantomWordsEnabled_ = !phantomWordsEnabled_;
   preferences_.putBool(kPrefPhantomWords, phantomWordsEnabled_);
@@ -954,9 +1009,29 @@ bool App::isFooterMetricTap(uint16_t x, uint16_t y) const {
          y >= BoardConfig::DISPLAY_HEIGHT - kFooterMetricTapHeightPx;
 }
 
+bool App::isPreviousSentenceTap(uint16_t x) const { return x < kPreviousSentenceTapWidthPx; }
+
 bool App::readerFooterVisible() const {
   return scrollModeEnabled() || state_ != AppState::Playing || contextViewVisible_ ||
          wpmFeedbackVisible_;
+}
+
+void App::rewindReaderSentence(uint32_t nowMs) {
+  resetReaderTapTracking();
+  pausedTouch_.active = false;
+  pausedTouchIntent_ = TouchIntent::None;
+  wpmFeedbackVisible_ = false;
+  reader_.rewindSentence();
+
+  if (state_ == AppState::Playing) {
+    setState(AppState::Paused, nowMs);
+  } else {
+    renderActiveReader(nowMs);
+    saveReadingPosition(true);
+  }
+
+  Serial.printf("[app] sentence rewind index=%u word=%s\n",
+                static_cast<unsigned int>(reader_.currentIndex()), reader_.currentWord().c_str());
 }
 
 bool App::handleFooterMetricTap(uint16_t x, uint16_t y, uint32_t nowMs) {
@@ -1143,6 +1218,10 @@ void App::applyPausedTouchGesture(const TouchEvent &event, uint32_t nowMs) {
         if (handleFooterMetricTap(event.x, event.y, nowMs)) {
           return;
         }
+        if (isPreviousSentenceTap(event.x)) {
+          rewindReaderSentence(nowMs);
+          return;
+        }
         if (playLocked_ || pauseAtSentenceEndRequested_) {
           resetReaderTapTracking();
           requestReaderPauseAtSentenceEnd(nowMs);
@@ -1222,6 +1301,10 @@ void App::applyPausedTouchGesture(const TouchEvent &event, uint32_t nowMs) {
     pausedTouch_.active = false;
     pausedTouchIntent_ = TouchIntent::None;
     if (tapLike && handleFooterMetricTap(event.x, event.y, nowMs)) {
+      return;
+    }
+    if (tapLike && !previewBrowseMode && isPreviousSentenceTap(event.x)) {
+      rewindReaderSentence(nowMs);
       return;
     }
     if (tapLike && previewBrowseMode) {
@@ -1603,6 +1686,9 @@ void App::selectSettingsItem(uint32_t nowMs) {
         return;
       case kSettingsDisplayReadingModeIndex:
         cycleReaderMode(nowMs);
+        return;
+      case kSettingsDisplayHandednessIndex:
+        cycleHandednessMode(nowMs);
         return;
       case kSettingsDisplayThemeIndex:
         cycleThemeMode(nowMs);
@@ -2092,12 +2178,20 @@ void App::selectTypographyTuningItem(uint32_t nowMs) {
                             kTypographyTrackingMax));
       preferences_.putChar(kPrefTypographyTracking, typographyConfig_.trackingPx);
       break;
-    case TypographyTuningAnchor:
-      typographyConfig_.anchorPercent = static_cast<uint8_t>(
-          nextCyclicSetting(typographyConfig_.anchorPercent, kTypographyAnchorMin,
-                            kTypographyAnchorMax));
+    case TypographyTuningAnchor: {
+      const uint8_t anchorMin =
+          (handednessMode_ == HandednessMode::Left) ? kLeftHandAnchorMin : kTypographyAnchorMin;
+      const uint8_t anchorMax =
+          (handednessMode_ == HandednessMode::Left) ? kLeftHandAnchorMax : kTypographyAnchorMax;
+      const uint8_t nextAnchorPercent = static_cast<uint8_t>(
+          nextCyclicSetting(effectiveAnchorPercent(), anchorMin, anchorMax));
+      typographyConfig_.anchorPercent = (handednessMode_ == HandednessMode::Left)
+                                            ? static_cast<uint8_t>(nextAnchorPercent -
+                                                                   kLeftHandAnchorOffset)
+                                            : nextAnchorPercent;
       preferences_.putUChar(kPrefTypographyAnchor, typographyConfig_.anchorPercent);
       break;
+    }
     case TypographyTuningGuideWidth:
       typographyConfig_.guideHalfWidth = static_cast<uint8_t>(nextCyclicSetting(
           typographyConfig_.guideHalfWidth, kTypographyGuideWidthMin,
@@ -2154,6 +2248,7 @@ void App::rebuildSettingsMenuItems() {
   } else if (menuScreen_ == MenuScreen::SettingsDisplay) {
     settingsMenuItems_.push_back(uiText(UiText::Back));
     settingsMenuItems_.push_back(uiText(UiText::ReadingMode) + ": " + readerModeLabel());
+    settingsMenuItems_.push_back("L/R Hand: " + handednessLabel());
     settingsMenuItems_.push_back(uiText(UiText::Theme) + ": " + themeModeLabel());
     settingsMenuItems_.push_back(uiText(UiText::Brightness) + ": " +
                                  String(currentBrightnessPercent()) + "%");
@@ -2312,6 +2407,10 @@ String App::readerModeLabel() const {
   }
 }
 
+String App::handednessLabel() const {
+  return handednessMode_ == HandednessMode::Left ? "Left" : "Right";
+}
+
 String App::readerFontSizeLabel() const {
   uint8_t levelIndex = readerFontSizeIndex_;
   if (levelIndex >= kReaderFontSizeCount) {
@@ -2384,7 +2483,7 @@ String App::typographyTuningValueLabel() const {
       return String(typographyConfig_.trackingPx >= 0 ? "+" : "") +
              String(static_cast<int>(typographyConfig_.trackingPx)) + " px";
     case TypographyTuningAnchor:
-      return String(static_cast<unsigned int>(typographyConfig_.anchorPercent)) + "%";
+      return String(static_cast<unsigned int>(effectiveAnchorPercent())) + "%";
     case TypographyTuningGuideWidth:
       return String(static_cast<unsigned int>(typographyConfig_.guideHalfWidth)) + " px";
     case TypographyTuningGuideGap:
@@ -3155,6 +3254,23 @@ uint8_t App::readingProgressPercent() const {
 }
 
 bool App::scrollModeEnabled() const { return readerMode_ == ReaderMode::Scroll; }
+
+bool App::uiRotated180() const {
+  return handednessMode_ == HandednessMode::Right ? BoardConfig::UI_ROTATED_180
+                                                  : !BoardConfig::UI_ROTATED_180;
+}
+
+uint8_t App::effectiveAnchorPercent() const {
+  return handednessMode_ == HandednessMode::Left
+             ? static_cast<uint8_t>(typographyConfig_.anchorPercent + kLeftHandAnchorOffset)
+             : typographyConfig_.anchorPercent;
+}
+
+DisplayManager::TypographyConfig App::effectiveTypographyConfig() const {
+  DisplayManager::TypographyConfig config = typographyConfig_;
+  config.anchorPercent = effectiveAnchorPercent();
+  return config;
+}
 
 uint32_t App::currentReaderContentToken() const {
   return hashBookPath(currentBookPath_.isEmpty() ? String("__demo__") : currentBookPath_);

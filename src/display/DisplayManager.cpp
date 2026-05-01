@@ -78,7 +78,7 @@ constexpr uint8_t kPhantomAlphaSmall = 72;
 constexpr int kTypographyTrackingMin = -2;
 constexpr int kTypographyTrackingMax = 3;
 constexpr int kTypographyAnchorMin = 30;
-constexpr int kTypographyAnchorMax = 40;
+constexpr int kTypographyAnchorMax = 60;
 constexpr int kTypographyGuideHalfWidthMin = 12;
 constexpr int kTypographyGuideHalfWidthMax = 30;
 constexpr int kTypographyGuideGapMin = 2;
@@ -802,6 +802,16 @@ void DisplayManager::setNightMode(bool nightMode) {
   }
 
   nightMode_ = nightMode;
+  tickerPlaybackFrameActive_ = false;
+  lastRenderKey_ = "";
+}
+
+void DisplayManager::setUiRotated180(bool rotated180) {
+  if (uiRotated180_ == rotated180) {
+    return;
+  }
+
+  uiRotated180_ = rotated180;
   tickerPlaybackFrameActive_ = false;
   lastRenderKey_ = "";
 }
@@ -1577,7 +1587,7 @@ void DisplayManager::flushScaledFrame(int scale, int virtualWidth, int virtualHe
       for (int nativeX = 0; nativeX < kPanelNativeWidth; ++nativeX) {
         int logicalX = kDisplayWidth - 1 - nativeY;
         int logicalY = nativeX;
-        if (BoardConfig::UI_ROTATED_180) {
+        if (uiRotated180_) {
           logicalX = nativeY;
           logicalY = kDisplayHeight - 1 - nativeX;
         }
@@ -1607,10 +1617,8 @@ void DisplayManager::flushFullWidthLogicalBand(int yStart, int yEnd) {
     return;
   }
 
-  const int physicalXStart =
-      BoardConfig::UI_ROTATED_180 ? (kDisplayHeight - yEnd) : yStart;
-  const int physicalXEnd =
-      BoardConfig::UI_ROTATED_180 ? (kDisplayHeight - yStart) : yEnd;
+  const int physicalXStart = uiRotated180_ ? (kDisplayHeight - yEnd) : yStart;
+  const int physicalXEnd = uiRotated180_ ? (kDisplayHeight - yStart) : yEnd;
   const int physicalWidth = physicalXEnd - physicalXStart;
   if (physicalWidth <= 0 || txBuffer_ == nullptr) {
     return;
@@ -1628,7 +1636,7 @@ void DisplayManager::flushFullWidthLogicalBand(int yStart, int yEnd) {
         const int nativeX = physicalXStart + localNativeX;
         int logicalX = kDisplayWidth - 1 - nativeY;
         int logicalY = nativeX;
-        if (BoardConfig::UI_ROTATED_180) {
+        if (uiRotated180_) {
           logicalX = nativeY;
           logicalY = kDisplayHeight - 1 - nativeX;
         }

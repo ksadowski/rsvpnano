@@ -61,6 +61,15 @@ void TouchHandler::cancel() {
   emptyTouchSamples_ = 0;
 }
 
+void TouchHandler::setUiRotated180(bool rotated180) {
+  if (uiRotated180_ == rotated180) {
+    return;
+  }
+
+  uiRotated180_ = rotated180;
+  cancel();
+}
+
 bool TouchHandler::readTouchPacket(uint8_t *buffer, size_t len) {
   Wire.beginTransmission(kAddress);
   Wire.write(kReadTouchCommand, sizeof(kReadTouchCommand));
@@ -139,7 +148,7 @@ bool TouchHandler::poll(TouchEvent &event) {
   const uint16_t rawShortAxis = static_cast<uint16_t>(((data[4] & 0x0F) << 8) | data[5]);
   const uint16_t mappedX = clampDisplayX(rawLongAxis);
   const uint16_t mappedY = clampDisplayY(rawShortAxis);
-  if (BoardConfig::UI_ROTATED_180) {
+  if (uiRotated180_) {
     event.x = static_cast<uint16_t>(BoardConfig::DISPLAY_WIDTH - 1 - mappedX);
     event.y = static_cast<uint16_t>(BoardConfig::DISPLAY_HEIGHT - 1 - mappedY);
   } else {
