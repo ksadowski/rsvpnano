@@ -147,6 +147,7 @@ Most reader settings and your current reading position are saved automatically.
 - Release after a hold: pause at the end of the current sentence.
 - Double-tap while paused: lock autoplay on.
 - Tap while locked autoplay is running: stop at the end of the current sentence.
+- Tap the far-left edge: jump to the start of the current sentence, or the previous sentence if you are already at the start. While playing, it rewinds immediately and pauses.
 - Swipe left: scrub backward through the text.
 - Swipe right: scrub forward through the text.
 - Swipe up while paused: increase WPM.
@@ -165,6 +166,7 @@ Horizontal scrubbing in RSVP mode opens a larger preview. In that preview:
 - Release after a hold: pause at the end of the current sentence.
 - Double-tap while paused: lock autoplay on.
 - Tap while locked autoplay is running: stop at the end of the current sentence.
+- Tap the far-left edge: jump to the start of the current sentence, or the previous sentence if you are already at the start. While playing, it rewinds immediately and pauses.
 - Swipe left: scrub backward through the text.
 - Swipe right: scrub forward through the text.
 - Swipe up while paused: increase WPM.
@@ -200,6 +202,7 @@ Main Menu
 |  |- Display
 |  |  |- Back
 |  |  |- Reading mode
+|  |  |- L/R Hand
 |  |  |- Theme
 |  |  |- Brightness
 |  |  `- Language
@@ -236,6 +239,7 @@ Main Menu
 #### Display
 
 - `Reading mode`: switch between anchored RSVP and page scroll.
+- `L/R Hand`: flip the device orientation for left-hand use while keeping sentence rewind on the visual left edge.
 - `Theme`: cycle `Dark`, `Light`, and `Night`.
 - `Brightness`: cycle the backlight level.
 - `Language`: cycle `English`, `Espanol`, `Francais`, `Deutsch`, `Romana`, and `Polski`.

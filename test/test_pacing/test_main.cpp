@@ -347,6 +347,38 @@ void test_seek_relative_via_base_index(void) {
   TEST_ASSERT_EQUAL_STRING("d", r.currentWord().c_str());
 }
 
+void test_rewind_sentence_moves_to_current_sentence_start(void) {
+  ReadingLoop r = makeReader(300, {"One", "two.", "Three", "four", "five.", "Six"});
+  r.seekTo(3);
+  r.rewindSentence();
+  TEST_ASSERT_EQUAL(2u, r.currentIndex());
+  TEST_ASSERT_EQUAL_STRING("Three", r.currentWord().c_str());
+}
+
+void test_rewind_sentence_at_sentence_start_moves_to_previous_sentence(void) {
+  ReadingLoop r = makeReader(300, {"One", "two.", "Three", "four", "five.", "Six"});
+  r.seekTo(2);
+  r.rewindSentence();
+  TEST_ASSERT_EQUAL(0u, r.currentIndex());
+  TEST_ASSERT_EQUAL_STRING("One", r.currentWord().c_str());
+}
+
+void test_rewind_sentence_clamps_at_book_start(void) {
+  ReadingLoop r = makeReader(300, {"One", "two.", "Three"});
+  r.seekTo(0);
+  r.rewindSentence();
+  TEST_ASSERT_EQUAL(0u, r.currentIndex());
+  TEST_ASSERT_EQUAL_STRING("One", r.currentWord().c_str());
+}
+
+void test_rewind_sentence_ignores_abbreviation_periods(void) {
+  ReadingLoop r = makeReader(300, {"Mr.", "Smith", "arrived.", "Then", "left."});
+  r.seekTo(4);
+  r.rewindSentence();
+  TEST_ASSERT_EQUAL(3u, r.currentIndex());
+  TEST_ASSERT_EQUAL_STRING("Then", r.currentWord().c_str());
+}
+
 // ---------------------------------------------------------------------------
 // Word count / word access
 // ---------------------------------------------------------------------------
@@ -416,6 +448,10 @@ int main(void) {
   RUN_TEST(test_scrub_clamped_at_start);
   RUN_TEST(test_scrub_clamped_at_end);
   RUN_TEST(test_seek_relative_via_base_index);
+  RUN_TEST(test_rewind_sentence_moves_to_current_sentence_start);
+  RUN_TEST(test_rewind_sentence_at_sentence_start_moves_to_previous_sentence);
+  RUN_TEST(test_rewind_sentence_clamps_at_book_start);
+  RUN_TEST(test_rewind_sentence_ignores_abbreviation_periods);
 
   RUN_TEST(test_word_at_returns_correct_word);
 

@@ -21,6 +21,11 @@ class App {
     Scroll = 1,
   };
 
+  enum class HandednessMode : uint8_t {
+    Right = 0,
+    Left = 1,
+  };
+
   App();
 
   void begin();
@@ -132,9 +137,11 @@ class App {
   void cycleThemeMode(uint32_t nowMs);
   void cycleUiLanguage(uint32_t nowMs);
   void cycleReaderMode(uint32_t nowMs);
+  void cycleHandednessMode(uint32_t nowMs);
   void togglePhantomWords(uint32_t nowMs);
   void cycleReaderFontSize(uint32_t nowMs);
   void applyDisplayPreferences(uint32_t nowMs, bool rerender = true);
+  void applyHandednessSettings(uint32_t nowMs, bool rerender = true);
   void applyTypographySettings(uint32_t nowMs, bool rerender = true);
   uint8_t currentBrightnessPercent() const;
   bool updateBatteryStatus(uint32_t nowMs, bool force = false);
@@ -147,7 +154,9 @@ class App {
   bool shouldFinalizeReaderPause(uint32_t nowMs) const;
   void resetReaderTapTracking();
   bool isFooterMetricTap(uint16_t x, uint16_t y) const;
+  bool isPreviousSentenceTap(uint16_t x) const;
   bool readerFooterVisible() const;
+  void rewindReaderSentence(uint32_t nowMs);
   int scrubStepsForDrag(int deltaX) const;
   void applyScrubTarget(int targetSteps, uint32_t nowMs);
   int browseScrollRatePermille(uint16_t y) const;
@@ -189,6 +198,7 @@ class App {
   String focusHighlightLabel() const;
   String uiLanguageLabel() const;
   String readerModeLabel() const;
+  String handednessLabel() const;
   String readerFontSizeLabel() const;
   String readerTypefaceLabel() const;
   String typographyTuningLabel() const;
@@ -256,6 +266,9 @@ class App {
   const char *stateName(AppState state) const;
   const char *touchPhaseName(TouchPhase phase) const;
   bool scrollModeEnabled() const;
+  bool uiRotated180() const;
+  uint8_t effectiveAnchorPercent() const;
+  DisplayManager::TypographyConfig effectiveTypographyConfig() const;
   uint32_t currentReaderContentToken() const;
 
   AppState state_ = AppState::Booting;
@@ -333,5 +346,6 @@ class App {
   bool nightMode_ = false;
   UiLanguage uiLanguage_ = UiLanguage::English;
   ReaderMode readerMode_ = ReaderMode::Rsvp;
+  HandednessMode handednessMode_ = HandednessMode::Right;
   DisplayManager::TypographyConfig typographyConfig_;
 };

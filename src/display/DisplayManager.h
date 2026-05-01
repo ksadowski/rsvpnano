@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <vector>
 
+#include "board/BoardConfig.h"
+
 class DisplayManager {
  public:
   enum class ReaderTypeface : uint8_t {
@@ -48,6 +50,7 @@ class DisplayManager {
   void setBrightnessPercent(uint8_t percent);
   void setDarkMode(bool darkMode);
   void setNightMode(bool nightMode);
+  void setUiRotated180(bool rotated180);
   void setTypographyConfig(const TypographyConfig &config);
   TypographyConfig typographyConfig() const;
   bool darkMode() const;
@@ -155,6 +158,7 @@ class DisplayManager {
   uint8_t brightnessPercent_ = 100;
   bool darkMode_ = true;
   bool nightMode_ = false;
+  bool uiRotated180_ = BoardConfig::UI_ROTATED_180;
   bool tickerPlaybackFrameActive_ = false;
   String lastRenderKey_;
   String batteryLabel_;
