@@ -2492,9 +2492,13 @@ bool rsvpWasWrittenByCurrentConverter(File &file) {
       line.trim();
       if (line.startsWith("@converter")) {
         const String expected = String("@converter ") + kConverterVersion;
+        Serial.printf("[epub] converter check: found='%s' expected='%s' match=%d\n",
+                      line.c_str(), expected.c_str(), line == expected ? 1 : 0);
         return line == expected;
       }
       if (!line.isEmpty() && !line.startsWith("@")) {
+        Serial.printf("[epub] converter check: no @converter found (first non-directive: '%s')\n",
+                      line.c_str());
         break;
       }
       line = "";
@@ -2515,6 +2519,38 @@ bool rsvpWasWrittenByCurrentConverter(File &file) {
   return false;
 }
 
+bool rsvpHasAnyConverterLine(File &file) {
+  if (!file || file.isDirectory()) {
+    return false;
+  }
+  file.seek(0);
+  String line;
+  size_t scannedLines = 0;
+  while (file.available() && scannedLines < 12) {
+    const char c = static_cast<char>(file.read());
+    if (c == '\r') {
+      continue;
+    }
+    if (c == '\n') {
+      line.trim();
+      if (line.startsWith("@converter")) {
+        return true;
+      }
+      if (!line.isEmpty() && !line.startsWith("@")) {
+        break;
+      }
+      line = "";
+      ++scannedLines;
+      continue;
+    }
+    if (line.length() < 128) {
+      line += c;
+    }
+  }
+  line.trim();
+  return line.startsWith("@converter");
+}
+
 }  // namespace
 
 bool EpubConverter::isCurrentCache(const String &rsvpPath) {
@@ -2524,6 +2560,15 @@ bool EpubConverter::isCurrentCache(const String &rsvpPath) {
     existing.close();
   }
   return current;
+}
+
+bool EpubConverter::hasConverterMarker(const String &rsvpPath) {
+  File existing = SD_MMC.open(rsvpPath);
+  const bool hasMarker = rsvpHasAnyConverterLine(existing);
+  if (existing) {
+    existing.close();
+  }
+  return hasMarker;
 }
 
 bool EpubConverter::convertIfNeeded(const String &epubPath, const String &rsvpPath,

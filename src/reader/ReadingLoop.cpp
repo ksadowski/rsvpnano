@@ -475,11 +475,15 @@ void ReadingLoop::begin(uint32_t nowMs) {
   setCurrentWordFromIndex();
 }
 
-void ReadingLoop::setWords(std::vector<String> words, uint32_t nowMs) {
-  loadedWords_ = std::move(words);
+void ReadingLoop::setBookSource(BookSourcePtr source, uint32_t nowMs) {
+  source_ = std::move(source);
   currentIndex_ = 0;
   lastAdvanceMs_ = nowMs;
   setCurrentWordFromIndex();
+}
+
+void ReadingLoop::setWords(std::vector<String> words, uint32_t nowMs) {
+  setBookSource(std::make_shared<InMemoryBookSource>(std::move(words)), nowMs);
 }
 
 void ReadingLoop::start(uint32_t nowMs) { lastAdvanceMs_ = nowMs; }
@@ -515,9 +519,9 @@ uint32_t ReadingLoop::wordIntervalMs() const { return 60000UL / wpm_; }
 uint32_t ReadingLoop::currentWordDurationMs() const {
   bool nextWordStartsLowercase = false;
   const size_t nextIndex = currentIndex_ + 1;
-  if (!loadedWords_.empty()) {
-    if (nextIndex < loadedWords_.size()) {
-      nextWordStartsLowercase = startsWithLowercaseLetter(loadedWords_[nextIndex]);
+  if (source_ && !source_->empty()) {
+    if (nextIndex < source_->size()) {
+      nextWordStartsLowercase = startsWithLowercaseLetter(source_->at(nextIndex));
     }
   } else if (nextIndex < kDemoWordCount) {
     nextWordStartsLowercase = startsWithLowercaseLetter(String(kDemoWords[nextIndex]));
@@ -540,9 +544,9 @@ bool ReadingLoop::currentWordEndsSentence() const {
 
   bool nextWordStartsLowercase = false;
   const size_t nextIndex = currentIndex_ + 1;
-  if (!loadedWords_.empty()) {
-    if (nextIndex < loadedWords_.size()) {
-      nextWordStartsLowercase = startsWithLowercaseLetter(loadedWords_[nextIndex]);
+  if (source_ && !source_->empty()) {
+    if (nextIndex < source_->size()) {
+      nextWordStartsLowercase = startsWithLowercaseLetter(source_->at(nextIndex));
     }
   } else if (nextIndex < kDemoWordCount) {
     nextWordStartsLowercase = startsWithLowercaseLetter(String(kDemoWords[nextIndex]));
@@ -685,17 +689,20 @@ void ReadingLoop::setCurrentWordFromIndex() {
 }
 
 size_t ReadingLoop::wordCount() const {
-  if (!loadedWords_.empty()) {
-    return loadedWords_.size();
+  if (source_ && !source_->empty()) {
+    return source_->size();
   }
   return kDemoWordCount;
 }
 
 String ReadingLoop::wordAt(size_t index) const {
-  if (!loadedWords_.empty()) {
-    return loadedWords_[index];
+  if (source_ && !source_->empty()) {
+    return source_->at(index);
+  }
+  if (index >= kDemoWordCount) {
+    return String();
   }
   return String(kDemoWords[index]);
 }
 
-bool ReadingLoop::usingLoadedBook() const { return !loadedWords_.empty(); }
+bool ReadingLoop::usingLoadedBook() const { return source_ && !source_->empty(); }

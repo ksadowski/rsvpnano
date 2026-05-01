@@ -28,6 +28,7 @@ class StorageManager {
 
  private:
   bool parseFile(File &file, BookContent &book, bool rsvpFormat);
+  bool loadRsvpBookContent(const String &rsvpPath, BookContent &book);
   bool ensureEpubConverted(const String &epubPath, String &rsvpPath);
   void refreshBookPaths();
   void notifyStatus(const char *title, const char *line1 = "", const char *line2 = "",

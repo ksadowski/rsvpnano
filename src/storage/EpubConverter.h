@@ -29,4 +29,5 @@ class EpubConverter {
   static bool convertIfNeeded(const String &epubPath, const String &rsvpPath,
                               const Options &options = Options());
   static bool isCurrentCache(const String &rsvpPath);
+  static bool hasConverterMarker(const String &rsvpPath);
 };
