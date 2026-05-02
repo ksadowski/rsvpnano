@@ -76,6 +76,7 @@ struct BatteryStatus {
 
 void begin();
 void lightSleepUntilBootButton();
+void prepareForDeepSleep();
 bool readBatteryStatus(BatteryStatus &status);
 bool releaseBatteryPowerHold();
 

@@ -72,6 +72,12 @@ uint8_t batteryPercentForVoltage(float voltage) {
 }  // namespace
 
 void begin() {
+  gpio_hold_dis(static_cast<gpio_num_t>(PIN_SD_CS));
+  // After deep-sleep wake the digital GPIO peripheral has been reset, so the
+  // pad reverts to INPUT after hold release.  Re-drive it HIGH immediately so
+  // the SD card never sees CS asserted while the SPI bus is uninitialised.
+  gpio_set_direction(static_cast<gpio_num_t>(PIN_SD_CS), GPIO_MODE_OUTPUT);
+  gpio_set_level(static_cast<gpio_num_t>(PIN_SD_CS), 1);
   pinMode(PIN_BOOT_BUTTON, INPUT_PULLUP);
   pinMode(PIN_PWR_BUTTON, INPUT_PULLUP);
   pinMode(PIN_BUTTON3, INPUT_PULLUP);
@@ -102,7 +108,7 @@ void lightSleepUntilBootButton() {
   pinMode(PIN_BOOT_BUTTON, INPUT_PULLUP);
   gpio_wakeup_enable(static_cast<gpio_num_t>(PIN_BOOT_BUTTON), GPIO_INTR_LOW_LEVEL);
   esp_sleep_enable_gpio_wakeup();
-  Serial.flush();
+  if (Serial) Serial.flush();
   esp_light_sleep_start();
   gpio_wakeup_disable(static_cast<gpio_num_t>(PIN_BOOT_BUTTON));
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
@@ -141,6 +147,15 @@ bool releaseBatteryPowerHold() {
   // restarting from battery (the FET stays off until USB is connected). Power-off
   // is achieved entirely via esp_deep_sleep_start() in App::enterPowerOff().
   return true;
+}
+
+void prepareForDeepSleep() {
+  // GPIO14 is an RTC GPIO on ESP32-S3, so gpio_hold_en() alone persists through
+  // deep sleep without needing gpio_deep_sleep_hold_en() (which would force-hold
+  // ALL digital GPIOs including the shared SPI CLK/MOSI and break display init).
+  gpio_set_direction(static_cast<gpio_num_t>(PIN_SD_CS), GPIO_MODE_OUTPUT);
+  gpio_set_level(static_cast<gpio_num_t>(PIN_SD_CS), 1);
+  gpio_hold_en(static_cast<gpio_num_t>(PIN_SD_CS));
 }
 
 }  // namespace BoardConfig
@@ -362,6 +377,10 @@ bool releaseBatteryPowerHold() {
   gBatteryPowerHoldEnabled = false;
   Serial.println("[board] Battery power hold released");
   return true;
+}
+
+void prepareForDeepSleep() {
+  // No SD CS hold needed on Waveshare (uses SD_MMC, not SPI SD).
 }
 
 }  // namespace BoardConfig

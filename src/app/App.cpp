@@ -373,6 +373,10 @@ void App::begin() {
   BoardConfig::begin();
   button_.begin();
   powerButton_.begin();
+#ifdef BOARD_LILYGO_TDISPLAY_S3_PRO
+  button3_.begin();
+  button3ReleasedSinceBoot_ = !button3_.isHeld();
+#endif
   bootButtonReleasedSinceBoot_ = !button_.isHeld();
   bootButtonLongPressHandled_ = false;
   powerButtonReleasedSinceBoot_ = !powerButton_.isHeld();
@@ -2719,7 +2723,7 @@ void App::enterPowerOff(uint32_t nowMs) {
   storage_.end();
   touch_.end();
   touchInitialized_ = false;
-  Serial.flush();
+  if (Serial) Serial.flush();
 
   BoardConfig::releaseBatteryPowerHold();
 
@@ -2729,6 +2733,7 @@ void App::enterPowerOff(uint32_t nowMs) {
     delay(10);
   }
 
+  BoardConfig::prepareForDeepSleep();
   display_.prepareForSleep();
   esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(BoardConfig::PIN_PWR_BUTTON), 0);
   esp_deep_sleep_start();
@@ -2738,7 +2743,7 @@ void App::enterSleep(uint32_t nowMs) {
   Serial.println("[app] entering light sleep; press BOOT to wake");
   saveReadingPosition(true);
   setState(AppState::Sleeping, nowMs);
-  Serial.flush();
+  if (Serial) Serial.flush();
   delay(200);
 
   display_.prepareForSleep();
@@ -2757,6 +2762,10 @@ void App::wakeFromSleep() {
   BoardConfig::begin();
   button_.begin();
   powerButton_.begin();
+#ifdef BOARD_LILYGO_TDISPLAY_S3_PRO
+  button3_.begin();
+  button3ReleasedSinceBoot_ = !button3_.isHeld();
+#endif
   bootButtonReleasedSinceBoot_ = !button_.isHeld();
   bootButtonLongPressHandled_ = false;
   powerButtonReleasedSinceBoot_ = !powerButton_.isHeld();

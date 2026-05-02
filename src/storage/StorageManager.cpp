@@ -1390,6 +1390,14 @@ bool StorageManager::begin() {
     notifyStatus("SD", "Mounting card", "", 5);
     Serial.printf("[storage] Trying SD (SPI) mount at %d kHz\n", frequencyKhz);
     STORAGE_FS.end();
+    // Send ≥74 dummy clock pulses with CS deasserted (HIGH) to put the SD card
+    // into SPI mode regardless of its previous state (e.g. after deep sleep).
+    pinMode(BoardConfig::PIN_SD_CS, OUTPUT);
+    digitalWrite(BoardConfig::PIN_SD_CS, HIGH);
+    SPI.beginTransaction(SPISettings(400000, MSBFIRST, SPI_MODE0));
+    for (int i = 0; i < 10; i++) SPI.transfer(0xFF);  // 10 × 8 = 80 clocks
+    SPI.endTransaction();
+    delay(5);
     mounted_ = STORAGE_FS.begin(BoardConfig::PIN_SD_CS, SPI,
                                 static_cast<uint32_t>(frequencyKhz) * 1000U,
                                 kMountPoint, 5, false);
