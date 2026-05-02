@@ -1,6 +1,13 @@
 #include "storage/BookIndex.h"
 
+#ifdef BOARD_LILYGO_TDISPLAY_S3_PRO
+#include <SD.h>
+#include <SPI.h>
+#define STORAGE_FS SD
+#else
 #include <SD_MMC.h>
+#define STORAGE_FS SD_MMC
+#endif
 #include <esp_heap_caps.h>
 
 namespace BookIndex {
@@ -50,7 +57,7 @@ bool readStr8(File &f, String &s) {
 String idxPathForRsvp(const String &rsvpPath) { return rsvpPath + ".idx"; }
 
 bool isCurrentForRsvp(const String &rsvpPath, const String &idxPath) {
-  File rsvp = SD_MMC.open(rsvpPath);
+  File rsvp = STORAGE_FS.open(rsvpPath);
   if (!rsvp || rsvp.isDirectory()) {
     if (rsvp) rsvp.close();
     return false;
@@ -58,7 +65,7 @@ bool isCurrentForRsvp(const String &rsvpPath, const String &idxPath) {
   const uint32_t rsvpSize = static_cast<uint32_t>(rsvp.size());
   rsvp.close();
 
-  File idx = SD_MMC.open(idxPath);
+  File idx = STORAGE_FS.open(idxPath);
   if (!idx || idx.isDirectory() || idx.size() < 12) {
     if (idx) idx.close();
     return false;
@@ -108,8 +115,8 @@ bool Writer::open(const String &tmpPath, uint32_t rsvpFileSize) {
     return false;
   }
 
-  SD_MMC.remove(tmpPath);
-  file_ = SD_MMC.open(tmpPath, FILE_WRITE);
+  STORAGE_FS.remove(tmpPath);
+  file_ = STORAGE_FS.open(tmpPath, FILE_WRITE);
   if (!file_) {
     Serial.printf("[bookidx] Failed to open tmp: %s\n", tmpPath.c_str());
     heap_caps_free(offsets_);
@@ -188,15 +195,15 @@ bool Writer::finalize(const String &finalPath) {
   offsetsCapacity_ = 0;
 
   if (!ok) {
-    SD_MMC.remove(tmpPath_);
+    STORAGE_FS.remove(tmpPath_);
     tmpPath_ = "";
     return false;
   }
 
-  SD_MMC.remove(finalPath);
-  if (!SD_MMC.rename(tmpPath_.c_str(), finalPath.c_str())) {
+  STORAGE_FS.remove(finalPath);
+  if (!STORAGE_FS.rename(tmpPath_.c_str(), finalPath.c_str())) {
     Serial.printf("[bookidx] rename failed: %s -> %s\n", tmpPath_.c_str(), finalPath.c_str());
-    SD_MMC.remove(tmpPath_);
+    STORAGE_FS.remove(tmpPath_);
     tmpPath_ = "";
     return false;
   }
@@ -207,7 +214,7 @@ bool Writer::finalize(const String &finalPath) {
 void Writer::abort() {
   if (file_) file_.close();
   if (!tmpPath_.isEmpty()) {
-    SD_MMC.remove(tmpPath_);
+    STORAGE_FS.remove(tmpPath_);
     tmpPath_ = "";
   }
   if (offsets_) { heap_caps_free(offsets_); offsets_ = nullptr; }
@@ -235,7 +242,7 @@ bool Writer::growArrays() {
 StreamingSource::~StreamingSource() { close(); }
 
 bool StreamingSource::openFromIdx(const String &idxPath, BookContent &book) {
-  file_ = SD_MMC.open(idxPath);
+  file_ = STORAGE_FS.open(idxPath);
   if (!file_ || file_.isDirectory()) {
     if (file_) file_.close();
     return false;

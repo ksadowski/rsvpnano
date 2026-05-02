@@ -360,7 +360,14 @@ uint16_t loadPacingDelayMs(Preferences &preferences, const char *key, const char
 
 }  // namespace
 
+#ifdef BOARD_LILYGO_TDISPLAY_S3_PRO
+App::App()
+    : button_(BoardConfig::PIN_BOOT_BUTTON),
+      powerButton_(BoardConfig::PIN_PWR_BUTTON),
+      button3_(BoardConfig::PIN_BUTTON3) {}
+#else
 App::App() : button_(BoardConfig::PIN_BOOT_BUTTON), powerButton_(BoardConfig::PIN_PWR_BUTTON) {}
+#endif
 
 void App::begin() {
   BoardConfig::begin();
@@ -485,8 +492,14 @@ void App::begin() {
 void App::update(uint32_t nowMs) {
   button_.update(nowMs);
   powerButton_.update(nowMs);
+#ifdef BOARD_LILYGO_TDISPLAY_S3_PRO
+  button3_.update(nowMs);
+#endif
   handleBootButton(nowMs);
   handlePowerButton(nowMs);
+#ifdef BOARD_LILYGO_TDISPLAY_S3_PRO
+  handleButton3(nowMs);
+#endif
   if (powerOffStarted_) {
     return;
   }
@@ -725,8 +738,48 @@ void App::handlePowerButton(uint32_t nowMs) {
     return;
   }
 
+#ifdef BOARD_LILYGO_TDISPLAY_S3_PRO
+  // T-Display-S3-Pro: short press = play/pause toggle (menu is on home touch button).
+  if (state_ == AppState::Menu) {
+    setState(AppState::Paused, nowMs);
+  } else if (state_ == AppState::Paused) {
+    if (sentenceStepMode_) {
+      if (reader_.currentWordEndsSentence() && !reader_.atEnd()) {
+        reader_.scrub(1);
+      }
+      pauseAtSentenceEndRequested_ = true;
+    }
+    playLocked_ = true;
+    setState(AppState::Playing, nowMs);
+  } else if (state_ == AppState::Playing) {
+    setState(AppState::Paused, nowMs);
+  }
+#else
   toggleMenuFromPowerButton(nowMs);
+#endif
 }
+
+#ifdef BOARD_LILYGO_TDISPLAY_S3_PRO
+void App::handleButton3(uint32_t nowMs) {
+  if (state_ == AppState::UsbTransfer || state_ == AppState::Sleeping || powerOffStarted_) {
+    return;
+  }
+
+  if (!button3ReleasedSinceBoot_) {
+    if (!button3_.isHeld()) {
+      button3ReleasedSinceBoot_ = true;
+    }
+    return;
+  }
+
+  if (!button3_.wasReleasedEvent()) {
+    return;
+  }
+
+  sentenceStepMode_ = !sentenceStepMode_;
+  Serial.printf("[app] sentence step mode %s\n", sentenceStepMode_ ? "ON" : "OFF");
+}
+#endif
 
 void App::toggleMenuFromPowerButton(uint32_t nowMs) {
   if (state_ == AppState::Booting || state_ == AppState::UsbTransfer ||
@@ -1073,6 +1126,13 @@ void App::handleTouch(uint32_t nowMs) {
     resetReaderTapTracking();
     return;
   }
+
+#ifdef BOARD_LILYGO_TDISPLAY_S3_PRO
+  if (touch_.homeButtonPressedAndClear()) {
+    toggleMenuFromPowerButton(nowMs);
+    return;
+  }
+#endif
 
   TouchEvent ev;
   if (!touch_.poll(ev)) {

@@ -128,6 +128,9 @@ bool UsbMassStorageManager::configureMsc() {
 }
 
 bool UsbMassStorageManager::beginSdCard() {
+#ifdef BOARD_LILYGO_TDISPLAY_S3_PRO
+  return false;
+#else
   blockCount_ = 0;
   blockSize_ = kUsbBlockSize;
   cardReady_ = false;
@@ -196,6 +199,7 @@ bool UsbMassStorageManager::beginSdCard() {
   }
 
   return false;
+#endif  // BOARD_LILYGO_TDISPLAY_S3_PRO
 }
 
 void UsbMassStorageManager::endSdCard() {

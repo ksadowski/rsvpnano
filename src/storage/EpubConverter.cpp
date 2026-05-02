@@ -1,6 +1,13 @@
 #include "storage/EpubConverter.h"
 
+#ifdef BOARD_LILYGO_TDISPLAY_S3_PRO
+#include <SD.h>
+#include <SPI.h>
+#define STORAGE_FS SD
+#else
 #include <SD_MMC.h>
+#define STORAGE_FS SD_MMC
+#endif
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -1655,7 +1662,7 @@ class ZipArchive {
  public:
   bool open(const String &path) {
     archivePath_ = path;
-    file_ = SD_MMC.open(path);
+    file_ = STORAGE_FS.open(path);
     if (!file_ || file_.isDirectory()) {
       Serial.printf("[epub-zip] Open failed: %s\n", path.c_str());
       close();
@@ -2368,8 +2375,8 @@ bool convertEpubToRsvp(const String &epubPath, const String &tempPath, const Str
   const String foundDetail = String(readingOrder.size()) + " content files";
   reportProgress(options, "Opening EPUB", foundDetail.c_str(), 25);
 
-  SD_MMC.remove(tempPath);
-  File output = SD_MMC.open(tempPath, FILE_WRITE);
+  STORAGE_FS.remove(tempPath);
+  File output = STORAGE_FS.open(tempPath, FILE_WRITE);
   if (!output) {
     Serial.printf("[epub] Could not create temporary RSVP file: %s\n", tempPath.c_str());
     zip.close();
@@ -2432,14 +2439,14 @@ bool convertEpubToRsvp(const String &epubPath, const String &tempPath, const Str
 
   if (wordCount == 0) {
     Serial.printf("[epub] No readable words extracted from %s\n", epubPath.c_str());
-    SD_MMC.remove(tempPath);
+    STORAGE_FS.remove(tempPath);
     return false;
   }
 
-  SD_MMC.remove(rsvpPath);
-  if (!SD_MMC.rename(tempPath, rsvpPath)) {
+  STORAGE_FS.remove(rsvpPath);
+  if (!STORAGE_FS.rename(tempPath, rsvpPath)) {
     Serial.printf("[epub] Could not rename %s to %s\n", tempPath.c_str(), rsvpPath.c_str());
-    SD_MMC.remove(tempPath);
+    STORAGE_FS.remove(tempPath);
     return false;
   }
 
@@ -2451,9 +2458,9 @@ bool convertEpubToRsvp(const String &epubPath, const String &tempPath, const Str
 }
 
 void writeFailureMarker(const String &markerPath, const char *message) {
-  SD_MMC.remove(markerPath);
+  STORAGE_FS.remove(markerPath);
 
-  File marker = SD_MMC.open(markerPath, FILE_WRITE);
+  File marker = STORAGE_FS.open(markerPath, FILE_WRITE);
   if (!marker) {
     Serial.printf("[epub] Could not create failure marker: %s\n", markerPath.c_str());
     return;
@@ -2554,7 +2561,7 @@ bool rsvpHasAnyConverterLine(File &file) {
 }  // namespace
 
 bool EpubConverter::isCurrentCache(const String &rsvpPath) {
-  File existing = SD_MMC.open(rsvpPath);
+  File existing = STORAGE_FS.open(rsvpPath);
   const bool current = rsvpWasWrittenByCurrentConverter(existing);
   if (existing) {
     existing.close();
@@ -2563,7 +2570,7 @@ bool EpubConverter::isCurrentCache(const String &rsvpPath) {
 }
 
 bool EpubConverter::hasConverterMarker(const String &rsvpPath) {
-  File existing = SD_MMC.open(rsvpPath);
+  File existing = STORAGE_FS.open(rsvpPath);
   const bool hasMarker = rsvpHasAnyConverterLine(existing);
   if (existing) {
     existing.close();
@@ -2573,7 +2580,7 @@ bool EpubConverter::hasConverterMarker(const String &rsvpPath) {
 
 bool EpubConverter::convertIfNeeded(const String &epubPath, const String &rsvpPath,
                                     const Options &options) {
-  File existing = SD_MMC.open(rsvpPath);
+  File existing = STORAGE_FS.open(rsvpPath);
   if (existing && !existing.isDirectory() && existing.size() > 0) {
     const bool currentCache = rsvpWasWrittenByCurrentConverter(existing);
     existing.close();
@@ -2583,7 +2590,7 @@ bool EpubConverter::convertIfNeeded(const String &epubPath, const String &rsvpPa
 
     Serial.printf("[epub] Rebuilding stale RSVP cache after converter update: %s\n",
                   rsvpPath.c_str());
-    SD_MMC.remove(rsvpPath);
+    STORAGE_FS.remove(rsvpPath);
   } else if (existing) {
     existing.close();
   }
@@ -2592,14 +2599,14 @@ bool EpubConverter::convertIfNeeded(const String &epubPath, const String &rsvpPa
   const String failedPath = rsvpPath + ".failed";
   const String lockPath = rsvpPath + ".converting";
 
-  File lock = SD_MMC.open(lockPath);
+  File lock = STORAGE_FS.open(lockPath);
   if (lock) {
     const bool lockMarker = !lock.isDirectory();
     const bool currentLock = lockMarker && markerWasWrittenByCurrentConverter(lock);
     lock.close();
     if (lockMarker) {
-      SD_MMC.remove(lockPath);
-      SD_MMC.remove(tempPath);
+      STORAGE_FS.remove(lockPath);
+      STORAGE_FS.remove(tempPath);
       if (currentLock) {
         Serial.printf("[epub] Previous conversion restart detected, skipping: %s\n",
                       epubPath.c_str());
@@ -2613,18 +2620,18 @@ bool EpubConverter::convertIfNeeded(const String &epubPath, const String &rsvpPa
     }
   }
 
-  File temp = SD_MMC.open(tempPath);
+  File temp = STORAGE_FS.open(tempPath);
   if (temp) {
     const bool interruptedTemp = !temp.isDirectory();
     temp.close();
     if (interruptedTemp) {
       Serial.printf("[epub] Removing stale temporary conversion file and retrying: %s\n",
                     epubPath.c_str());
-      SD_MMC.remove(tempPath);
+      STORAGE_FS.remove(tempPath);
     }
   }
 
-  File failed = SD_MMC.open(failedPath);
+  File failed = STORAGE_FS.open(failedPath);
   if (failed) {
     const bool failedMarker = !failed.isDirectory();
     const bool currentFailure = failedMarker && markerWasWrittenByCurrentConverter(failed);
@@ -2636,19 +2643,19 @@ bool EpubConverter::convertIfNeeded(const String &epubPath, const String &rsvpPa
       }
 
       Serial.printf("[epub] Retrying EPUB after converter update: %s\n", epubPath.c_str());
-      SD_MMC.remove(failedPath);
+      STORAGE_FS.remove(failedPath);
     }
   }
 
   Serial.printf("[epub] Converting on device: %s\n", epubPath.c_str());
   writeFailureMarker(lockPath, "Conversion in progress. Delete this file only if retrying.");
   const bool converted = convertEpubToRsvp(epubPath, tempPath, rsvpPath, options);
-  SD_MMC.remove(lockPath);
+  STORAGE_FS.remove(lockPath);
   if (!converted) {
     writeFailureMarker(failedPath, "Conversion failed. Remove this marker to retry.");
     return false;
   }
 
-  SD_MMC.remove(failedPath);
+  STORAGE_FS.remove(failedPath);
   return true;
 }

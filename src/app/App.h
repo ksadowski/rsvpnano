@@ -126,6 +126,9 @@ class App {
   void maybeSaveReadingPosition(uint32_t nowMs);
   void handleBootButton(uint32_t nowMs);
   void handlePowerButton(uint32_t nowMs);
+#ifdef BOARD_LILYGO_TDISPLAY_S3_PRO
+  void handleButton3(uint32_t nowMs);
+#endif
   void toggleMenuFromPowerButton(uint32_t nowMs);
   void openMainMenu(uint32_t nowMs);
   void cycleBrightness();
@@ -263,6 +266,9 @@ class App {
   ReadingLoop reader_;
   ButtonHandler button_;
   ButtonHandler powerButton_;
+#ifdef BOARD_LILYGO_TDISPLAY_S3_PRO
+  ButtonHandler button3_;
+#endif
   TouchHandler touch_;
   StorageManager storage_;
   OtaUpdater otaUpdater_;
@@ -315,6 +321,10 @@ class App {
   uint16_t lastReaderTapY_ = 0;
   bool touchInitialized_ = false;
   bool touchPlayHeld_ = false;
+#ifdef BOARD_LILYGO_TDISPLAY_S3_PRO
+  bool sentenceStepMode_ = false;
+  bool button3ReleasedSinceBoot_ = false;
+#endif
   bool playLocked_ = false;
   bool pauseAtSentenceEndRequested_ = false;
   bool lastReaderTapValid_ = false;

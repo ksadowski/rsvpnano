@@ -4,7 +4,14 @@
 
 #include <HTTPClient.h>
 #include <HTTPUpdate.h>
+#ifdef BOARD_LILYGO_TDISPLAY_S3_PRO
+#include <SD.h>
+#include <SPI.h>
+#define STORAGE_FS SD
+#else
 #include <SD_MMC.h>
+#define STORAGE_FS SD_MMC
+#endif
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 
@@ -250,7 +257,7 @@ bool OtaUpdater::isConfigured(const Config &config) const {
 String OtaUpdater::currentVersion() const { return RSVP_FIRMWARE_VERSION; }
 
 bool OtaUpdater::loadConfigFromPath(const char *path, Config &config) const {
-  File file = SD_MMC.open(path);
+  File file = STORAGE_FS.open(path);
   if (!file || file.isDirectory()) {
     if (file) {
       file.close();

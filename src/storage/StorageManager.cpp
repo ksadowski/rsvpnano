@@ -1,11 +1,18 @@
 #include "storage/StorageManager.h"
 
+#ifdef BOARD_LILYGO_TDISPLAY_S3_PRO
+#include <SD.h>
+#include <SPI.h>
+#define STORAGE_FS SD
+#else
 #include <SD_MMC.h>
+#include <driver/sdmmc_types.h>
+#define STORAGE_FS SD_MMC
+#endif
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <cstring>
-#include <driver/sdmmc_types.h>
 #include <esp_heap_caps.h>
 #include <utility>
 
@@ -28,11 +35,15 @@ constexpr const char *kMountPoint = "/sdcard";
 constexpr const char *kBooksPath = "/books";
 constexpr size_t kMaxBookWords = static_cast<size_t>(RSVP_MAX_BOOK_WORDS);
 constexpr size_t kMaxChapterTitleChars = 64;
+#ifdef BOARD_LILYGO_TDISPLAY_S3_PRO
+constexpr int kSdFrequenciesKhz[] = {25000, 10000, 400};
+#else
 constexpr int kSdFrequenciesKhz[] = {
     SDMMC_FREQ_DEFAULT,
     10000,
     SDMMC_FREQ_PROBING,
 };
+#endif
 
 bool hasBookWordLimit() { return kMaxBookWords > 0; }
 
@@ -94,7 +105,7 @@ bool prefixHasBoundary(const String &lowered, const char *prefix) {
 }
 
 bool booksDirectoryExists() {
-  File dir = SD_MMC.open(kBooksPath);
+  File dir = STORAGE_FS.open(kBooksPath);
   const bool exists = dir && dir.isDirectory();
   if (dir) {
     dir.close();
@@ -128,7 +139,7 @@ bool hasRsvpSibling(const String &path) {
   }
   siblingPath += ".rsvp";
 
-  File sibling = SD_MMC.open(siblingPath);
+  File sibling = STORAGE_FS.open(siblingPath);
   const bool exists = sibling && !sibling.isDirectory() && sibling.size() > 0;
   if (sibling) {
     sibling.close();
@@ -217,7 +228,7 @@ void handleEpubProgress(void *rawContext, const char *line1, const char *line2,
 }
 
 bool fileExistsAndHasBytes(const String &path) {
-  File file = SD_MMC.open(path);
+  File file = STORAGE_FS.open(path);
   const bool exists = file && !file.isDirectory() && file.size() > 0;
   if (file) {
     file.close();
@@ -231,7 +242,7 @@ bool hasCurrentEpubCache(const String &epubPath) {
 }
 
 bool markerExists(const String &path) {
-  File file = SD_MMC.open(path);
+  File file = STORAGE_FS.open(path);
   const bool exists = file && !file.isDirectory();
   if (file) {
     file.close();
@@ -271,7 +282,7 @@ void logHeapSnapshot(const char *label) {
 std::vector<String> collectBookPaths() {
   std::vector<String> bookPaths;
 
-  File dir = SD_MMC.open(kBooksPath);
+  File dir = STORAGE_FS.open(kBooksPath);
   if (!dir || !dir.isDirectory()) {
     if (dir) {
       dir.close();
@@ -286,7 +297,7 @@ std::vector<String> collectBookPaths() {
       if (displayNameForPath(path).startsWith("._")) {
         Serial.printf("[scan] Removing macOS metadata file: %s\n", path.c_str());
         entry.close();
-        SD_MMC.remove(path);
+        STORAGE_FS.remove(path);
         entry = dir.openNextFile();
         continue;
       }
@@ -1304,7 +1315,7 @@ String readRsvpDirectiveValue(const String &path, const char *directive) {
     return "";
   }
 
-  File file = SD_MMC.open(path);
+  File file = STORAGE_FS.open(path);
   if (!file || file.isDirectory()) {
     if (file) {
       file.close();
@@ -1373,6 +1384,16 @@ bool StorageManager::begin() {
   listedOnce_ = false;
   bookPaths_.clear();
 
+#ifdef BOARD_LILYGO_TDISPLAY_S3_PRO
+  // SPI SD card — shares SPI bus with TFT (already initialised in axs15231bInit).
+  for (int frequencyKhz : kSdFrequenciesKhz) {
+    notifyStatus("SD", "Mounting card", "", 5);
+    Serial.printf("[storage] Trying SD (SPI) mount at %d kHz\n", frequencyKhz);
+    STORAGE_FS.end();
+    mounted_ = STORAGE_FS.begin(BoardConfig::PIN_SD_CS, SPI,
+                                static_cast<uint32_t>(frequencyKhz) * 1000U,
+                                kMountPoint, 5, false);
+#else
   if (!SD_MMC.setPins(BoardConfig::PIN_SD_CLK, BoardConfig::PIN_SD_CMD, BoardConfig::PIN_SD_D0)) {
     Serial.println("[storage] SD_MMC pin setup failed");
     return false;
@@ -1383,8 +1404,9 @@ bool StorageManager::begin() {
     Serial.printf("[storage] Trying SD_MMC mount at %d kHz\n", frequencyKhz);
     SD_MMC.end();
     mounted_ = SD_MMC.begin(kMountPoint, true, false, frequencyKhz, 5);
+#endif
     if (mounted_) {
-      const uint64_t sizeMb = SD_MMC.cardSize() / (1024ULL * 1024ULL);
+      const uint64_t sizeMb = STORAGE_FS.cardSize() / (1024ULL * 1024ULL);
       Serial.printf("[storage] SD initialized (%llu MB) at %d kHz\n", sizeMb, frequencyKhz);
       notifyStatus("SD", "Scanning books", "EPUB converts on open", 10);
       refreshBookPaths();
@@ -1398,7 +1420,7 @@ bool StorageManager::begin() {
 
 void StorageManager::end() {
   if (mounted_) {
-    SD_MMC.end();
+    STORAGE_FS.end();
   }
   mounted_ = false;
   listedOnce_ = false;
@@ -1424,7 +1446,7 @@ void StorageManager::listBooks() {
 
   Serial.println("[storage] Listing /books (.rsvp/.txt/.epub pending conversion):");
   for (const String &path : bookPaths_) {
-    File entry = SD_MMC.open(path);
+    File entry = STORAGE_FS.open(path);
     if (!entry || entry.isDirectory()) {
       if (entry) {
         entry.close();
@@ -1507,7 +1529,7 @@ bool StorageManager::ensureEpubConverted(const String &epubPath, String &rsvpPat
     Serial.printf("[storage] EPUB cache stale after converter update: %s\n", rsvpPath.c_str());
   }
 
-  File epubFile = SD_MMC.open(epubPath);
+  File epubFile = STORAGE_FS.open(epubPath);
   const size_t epubBytes = epubFile ? static_cast<size_t>(epubFile.size()) : 0;
   if (epubFile) {
     epubFile.close();
@@ -1595,7 +1617,7 @@ bool StorageManager::loadBookContent(size_t index, BookContent &book, String *lo
       parsedIndex = static_cast<size_t>(convertedIndex);
     }
 
-    File entry = SD_MMC.open(path);
+    File entry = STORAGE_FS.open(path);
     if (!entry || entry.isDirectory()) {
       if (entry) {
         entry.close();
@@ -1688,10 +1710,10 @@ bool StorageManager::loadRsvpBookContent(const String &rsvpPath, BookContent &bo
       book.source = std::move(source);
       return true;
     }
-    SD_MMC.remove(idxPath);
+    STORAGE_FS.remove(idxPath);
   }
 
-  File rsvpFile = SD_MMC.open(rsvpPath);
+  File rsvpFile = STORAGE_FS.open(rsvpPath);
   if (!rsvpFile || rsvpFile.isDirectory()) {
     if (rsvpFile) rsvpFile.close();
     return false;
@@ -1758,7 +1780,7 @@ bool StorageManager::loadRsvpBookContent(const String &rsvpPath, BookContent &bo
 
   auto source = std::make_shared<BookIndex::StreamingSource>();
   if (!source->openFromIdx(idxPath, book)) {
-    SD_MMC.remove(idxPath);
+    STORAGE_FS.remove(idxPath);
     return false;
   }
   book.source = std::move(source);
