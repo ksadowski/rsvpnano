@@ -1,5 +1,10 @@
 .pio
+.derivedData
+*.xcuserstate
+xcuserdata/
 .codex
+.claude
+CLAUDE.md
 .DS_Store
 __pycache__/
 *.py[cod]
@@ -13,3 +18,5 @@ tools/*.rsvp
 *.rsvp.failed
 *.rsvp.converting
 web/firmware/*.bin
+.cache/
+compile_commands.json
